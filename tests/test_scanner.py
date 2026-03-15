@@ -7,6 +7,7 @@ response scanner, policy engine, and metrics.
 
 import sys
 import os
+import yaml
 
 # Add project root to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -283,6 +284,139 @@ def test_full_malicious_server_scan():
     print("  [PASS] test_full_malicious_server_scan")
 
 
+# === agentgateway Integration Tests ===
+
+def test_firewall_policy_integration():
+    """Verify the firewall applies policy engine decisions during tool filtering."""
+    from src.firewall import MCPToolFirewall
+    import tempfile, os
+
+    # Create a temp policy config that blocklists 'evil_tool' and allowlists 'trusted_tool'
+    config = {
+        "policies": {
+            "blocklist": [
+                {"tool_name": "evil_tool", "server": "*"},
+            ],
+            "allowlist": [
+                {"tool_name": "trusted_tool", "server": "*"},
+            ],
+            "max_description_length": 5000,
+        }
+    }
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+        yaml.dump(config, f)
+        config_path = f.name
+
+    try:
+        fw = MCPToolFirewall(config_path=config_path)
+        assert len(fw.policy.blocklist) == 1, "Should load 1 blocklist rule"
+        assert len(fw.policy.allowlist) == 1, "Should load 1 allowlist rule"
+    finally:
+        os.unlink(config_path)
+    print("  [PASS] test_firewall_policy_integration")
+
+
+def test_firewall_gateway_lockdown():
+    """Verify the firewall can be configured with trusted gateway IPs."""
+    from src.firewall import MCPToolFirewall
+
+    fw = MCPToolFirewall(trusted_gateways=["10.0.0.5", "10.96.0.0/16"])
+    assert len(fw.trusted_gateways) == 2, "Should have 2 trusted gateways"
+    assert fw.trusted_gateways[0] == "10.0.0.5"
+    assert fw.trusted_gateways[1] == "10.96.0.0/16"
+    print("  [PASS] test_firewall_gateway_lockdown")
+
+
+def test_firewall_gateway_identity_extraction():
+    """Verify the firewall extracts agentgateway-forwarded identity headers."""
+    from src.firewall import MCPToolFirewall, AGENTGATEWAY_HEADERS
+    from unittest.mock import MagicMock
+
+    fw = MCPToolFirewall()
+
+    # Mock a request with agentgateway headers
+    mock_request = MagicMock()
+    mock_request.headers = {
+        "X-Agentgateway-User": "alice@example.com",
+        "X-Agentgateway-Role": "security-auditor",
+        "X-Agentgateway-Request-Id": "req-abc-123",
+        "X-Agentgateway-Target": "firewall-protected",
+    }
+
+    identity = fw._extract_gateway_identity(mock_request)
+    assert identity["user"] == "alice@example.com"
+    assert identity["role"] == "security-auditor"
+    assert identity["request_id"] == "req-abc-123"
+    assert identity["target"] == "firewall-protected"
+    print("  [PASS] test_firewall_gateway_identity_extraction")
+
+
+def test_firewall_policy_blocks_tool_in_scan():
+    """End-to-end: policy blocklist removes a tool before scanner even sees it."""
+    from src.firewall import MCPToolFirewall
+    import tempfile, os
+
+    config = {
+        "policies": {
+            "blocklist": [
+                {"tool_name": "banned_tool", "server": "*"},
+            ],
+        }
+    }
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+        yaml.dump(config, f)
+        config_path = f.name
+
+    try:
+        fw = MCPToolFirewall(config_path=config_path)
+
+        # Simulate a tools/list response
+        resp_data = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "tools": [
+                    {"name": "banned_tool", "description": "A perfectly safe description"},
+                    {"name": "good_tool", "description": "Format text with bold and italic"},
+                ],
+            },
+        }
+        result = fw._inspect_tools_list(resp_data, {})
+        tool_names = [t["name"] for t in result["result"]["tools"]]
+        assert "banned_tool" not in tool_names, "Policy-blocked tool should be removed"
+        assert "good_tool" in tool_names, "Non-blocked tool should remain"
+        assert result["result"]["_firewall"]["policy_blocked"][0]["tool"] == "banned_tool"
+    finally:
+        os.unlink(config_path)
+    print("  [PASS] test_firewall_policy_blocks_tool_in_scan")
+
+
+def test_audit_log_includes_gateway_identity():
+    """Verify audit logs include agentgateway identity for compliance."""
+    from src.reporter import AuditReporter
+    from src.scanner import ToolScanner
+    import tempfile, json, os
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        reporter = AuditReporter(log_dir=tmpdir, verbose=False)
+        scanner = ToolScanner()
+
+        tools = [{"name": "test_tool", "description": "A simple formatting tool."}]
+        report = scanner.scan_tools_list("test-server", tools)
+
+        identity = {"user": "bob@corp.com", "role": "admin", "request_id": "req-xyz"}
+        reporter.log_scan(report, gateway_identity=identity)
+
+        log_files = [f for f in os.listdir(tmpdir) if f.startswith("audit-")]
+        assert len(log_files) == 1, "Should create one audit log file"
+
+        with open(os.path.join(tmpdir, log_files[0])) as f:
+            entry = json.loads(f.readline())
+            assert "gateway_identity" in entry, "Audit log should include gateway identity"
+            assert entry["gateway_identity"]["user"] == "bob@corp.com"
+    print("  [PASS] test_audit_log_includes_gateway_identity")
+
+
 def run_all_tests():
     tests = [
         # Inbound detection (9)
@@ -311,6 +445,12 @@ def run_all_tests():
         test_metrics_collection,
         # Integration (1)
         test_full_malicious_server_scan,
+        # agentgateway integration (5)
+        test_firewall_policy_integration,
+        test_firewall_gateway_lockdown,
+        test_firewall_gateway_identity_extraction,
+        test_firewall_policy_blocks_tool_in_scan,
+        test_audit_log_includes_gateway_identity,
     ]
 
     print("\nMCP Tool Firewall - Running Tests")

@@ -33,11 +33,19 @@ spec:
               value: "malicious-mcp-server"
             - name: UPSTREAM_PORT
               value: "9999"
+            - name: AGENTGATEWAY_POD_IP
+              value: "agentgateway.default.svc.cluster.local"
           command: ["python", "-m", "src.firewall"]
           args:
             - "--port=8888"
             - "--upstream-host=$(UPSTREAM_HOST)"
             - "--upstream-port=$(UPSTREAM_PORT)"
+            - "--config=/etc/firewall/firewall-config.yaml"
+            - "--trusted-gateways=10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.1"
+          volumeMounts:
+            - name: firewall-config
+              mountPath: /etc/firewall
+              readOnly: true
           readinessProbe:
             httpGet:
               path: /health
@@ -51,6 +59,33 @@ spec:
             limits:
               cpu: 500m
               memory: 256Mi
+      volumes:
+        - name: firewall-config
+          configMap:
+            name: firewall-config
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: firewall-config
+  namespace: default
+data:
+  firewall-config.yaml: |
+    thresholds:
+      block: 51
+      warn: 26
+    policies:
+      blocklist: []
+      allowlist: []
+      max_description_length: 5000
+      server_trust: []
+    response_scanning:
+      enabled: true
+      detect_secrets: true
+      detect_pii: true
+      redact_critical: true
+    kill_switch:
+      enabled: false
 ---
 apiVersion: v1
 kind: Service

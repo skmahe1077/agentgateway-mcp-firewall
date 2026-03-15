@@ -146,6 +146,16 @@ data:
                     - type: "stdout"
                       filter: 'true'
 
+                  # -------------------------------------------------------
+                  # Header Forwarding — Pass identity to firewall
+                  # -------------------------------------------------------
+                  requestHeaders:
+                    set:
+                      X-Agentgateway-User: "%REQ(jwt.sub)%"
+                      X-Agentgateway-Role: "%REQ(jwt.role)%"
+                      X-Agentgateway-Request-Id: "%REQ(x-request-id)%"
+                      X-Agentgateway-Target: "%UPSTREAM_TARGET%"
+
                 backends:
                   - mcp:
                       targets:

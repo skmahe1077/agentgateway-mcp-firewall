@@ -29,7 +29,7 @@ class AuditReporter:
         date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         return os.path.join(self.log_dir, f"audit-{date_str}.jsonl")
 
-    def log_scan(self, report: ScanReport) -> None:
+    def log_scan(self, report: ScanReport, gateway_identity: dict = None) -> None:
         self.stats["total_scans"] += 1
         self.stats["total_tools_scanned"] += report.total_tools
         self.stats["total_tools_blocked"] += report.tools_blocked
@@ -52,6 +52,10 @@ class AuditReporter:
             "max_risk_score": report.max_risk_score,
             "results": [r.to_dict() for r in report.results],
         }
+
+        # Include agentgateway identity in audit trail for compliance
+        if gateway_identity:
+            log_entry["gateway_identity"] = gateway_identity
 
         try:
             with open(self._get_log_file(), "a") as f:
