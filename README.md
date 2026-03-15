@@ -100,6 +100,8 @@ MCP tool descriptions are a blind spot. When a malicious MCP server embeds hidde
 
 ## Architecture
 
+![Architecture Diagram](docs/architecture.svg)
+
 ```
                         ┌─────────────────────────────────────────────┐
                         │          kagent Security Auditor            │
@@ -792,6 +794,7 @@ agentgateway-mcp-firewall/
 │   └── firewall-config.yaml           # Firewall config + policies + response scanning
 │
 ├── docs/
+│   ├── architecture.svg               # Architecture diagram
 │   └── BLOG.md                        # Blog post: problem, solution, kagent, results
 │
 ├── tests/
