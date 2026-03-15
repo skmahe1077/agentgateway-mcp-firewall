@@ -189,7 +189,7 @@ Agent ─────▶ agentgateway (:3000) ───────────�
 
 ```bash
 # Clone the repository
-git clone https://github.com/YOUR_USERNAME/agentgateway-mcp-firewall.git
+git clone https://github.com/skmahe1077/agentgateway-mcp-firewall.git
 cd agentgateway-mcp-firewall
 
 # Install dependencies
