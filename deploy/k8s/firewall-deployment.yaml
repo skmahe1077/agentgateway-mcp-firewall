@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-tool-firewall
+  namespace: default
+  labels:
+    app: mcp-tool-firewall
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mcp-tool-firewall
+  template:
+    metadata:
+      labels:
+        app: mcp-tool-firewall
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8888"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: firewall
+          image: mcp-tool-firewall:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8888
+              name: proxy
+            - containerPort: 8889
+              name: mcp-server
+          env:
+            - name: UPSTREAM_HOST
+              value: "malicious-mcp-server"
+            - name: UPSTREAM_PORT
+              value: "9999"
+          command: ["python", "-m", "src.firewall"]
+          args:
+            - "--port=8888"
+            - "--upstream-host=$(UPSTREAM_HOST)"
+            - "--upstream-port=$(UPSTREAM_PORT)"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8888
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp-tool-firewall
+  namespace: default
+spec:
+  selector:
+    app: mcp-tool-firewall
+  ports:
+    - name: proxy
+      port: 8888
+      targetPort: 8888
+    - name: mcp-server
+      port: 8889
+      targetPort: 8889
+  type: ClusterIP

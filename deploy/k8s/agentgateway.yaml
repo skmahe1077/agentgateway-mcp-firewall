@@ -1,0 +1,230 @@
+# =============================================================================
+# agentgateway — The Governance Layer for MCP/AI Agent Traffic
+#
+# agentgateway serves as the CENTRAL GOVERNANCE PLANE:
+#   1. MCP Authentication — OAuth 2.0 / JWT validation for MCP clients
+#   2. MCP Authorization — CEL-based RBAC per tool, per user, per role
+#   3. Rate Limiting — Per-agent, per-tool throttling to prevent abuse
+#   4. MCP Observability — Structured logging, metrics, tracing for all MCP traffic
+#   5. Multi-Target Routing — Route to firewall-protected and direct backends
+#   6. Session Management — Stateful MCP sessions with long-lived connections
+#
+# Traffic Flow:
+#   Agent → agentgateway (:3000) → MCP Tool Firewall (:8888) → upstream servers
+#                ↓
+#   Admin UI (:15000) — real-time visibility into all agent activity
+#   Metrics (:15020) — Prometheus-compatible MCP metrics
+# =============================================================================
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agentgateway-config
+  namespace: default
+data:
+  config.yaml: |
+    # ---------------------------------------------------------------------------
+    # Static Configuration — Admin, Observability, Tracing
+    # ---------------------------------------------------------------------------
+    config:
+      adminAddr: "0.0.0.0:15000"
+      statsAddr: "0.0.0.0:15020"
+      logging:
+        level: info
+        format: json
+
+    # ---------------------------------------------------------------------------
+    # MCP Connectivity — Targets with per-server policies
+    # ---------------------------------------------------------------------------
+    mcp:
+      port: 3000
+      targets:
+        # Target 1: Firewall-protected upstream (production path)
+        # All tools/list responses are scanned for poisoning before reaching agents
+        - name: firewall-protected
+          mcp:
+            host: mcp-tool-firewall
+            port: 8888
+            path: /mcp
+          policies:
+            # MCP Authorization: CEL-based RBAC per tool
+            mcpAuthorization:
+              rules:
+                # Rule 1: Any authenticated user can list tools
+                - 'mcp.method == "list_tools"'
+                # Rule 2: Only users with "operator" role can call tools
+                - 'mcp.method == "call_tool" && has(jwt.sub)'
+                # Rule 3: Block direct access to known-dangerous tool names
+                - 'mcp.tool.name != "run_diagnostics" && mcp.tool.name != "search_files"'
+
+        # Target 2: Firewall MCP Server (security scanning tools)
+        # Exposed so the kagent security auditor agent can scan servers
+        - name: firewall-scanner
+          mcp:
+            host: mcp-tool-firewall
+            port: 8889
+            path: /mcp
+          policies:
+            mcpAuthorization:
+              rules:
+                # Only the security auditor agent can use scanning tools
+                - 'has(jwt.sub) && jwt.role == "security-auditor"'
+
+        # Target 3: Direct access (for comparison/demo — no firewall)
+        - name: unprotected-direct
+          mcp:
+            host: malicious-mcp-server
+            port: 9999
+            path: /mcp
+          policies:
+            mcpAuthorization:
+              rules:
+                # Only admin users can bypass the firewall (for testing)
+                - 'has(jwt.sub) && jwt.role == "admin"'
+
+  # ---------------------------------------------------------------------------
+  # Dynamic Configuration — Listeners, Routes, Policies
+  # ---------------------------------------------------------------------------
+  dynamic.yaml: |
+    binds:
+      - port: 3000
+        listeners:
+          - name: mcp-gateway
+            protocol: MCP
+            hostname: "*"
+            routes:
+              - name: secured-mcp-route
+                policies:
+                  # -------------------------------------------------------
+                  # MCP Authentication — JWT validation
+                  # -------------------------------------------------------
+                  mcpAuthentication:
+                    issuer: "https://auth.example.com"
+                    jwks:
+                      url: "https://auth.example.com/.well-known/jwks.json"
+                    resourceMetadata:
+                      resource: "http://agentgateway:3000/mcp"
+                      scopesSupported:
+                        - "mcp:read"
+                        - "mcp:write"
+                        - "mcp:admin"
+                      bearerMethodsSupported:
+                        - "header"
+
+                  # -------------------------------------------------------
+                  # Rate Limiting — Prevent abuse of MCP tools
+                  # -------------------------------------------------------
+                  localRateLimit:
+                    # Global: 100 tool calls per minute across all agents
+                    - maxTokens: 100
+                      tokensPerFill: 100
+                      fillInterval: "60s"
+                      type: "global"
+                    # Per-agent: 20 tool calls per minute per authenticated user
+                    - maxTokens: 20
+                      tokensPerFill: 20
+                      fillInterval: "60s"
+                      type: "per-connection"
+
+                  # -------------------------------------------------------
+                  # CORS — Control cross-origin MCP access
+                  # -------------------------------------------------------
+                  cors:
+                    allowOrigins:
+                      - exact: "https://dashboard.example.com"
+                    allowMethods:
+                      - POST
+                    allowHeaders:
+                      - Authorization
+                      - Content-Type
+                    maxAge: 3600
+
+                  # -------------------------------------------------------
+                  # Access Logging — Structured MCP audit trail
+                  # -------------------------------------------------------
+                  accessLogging:
+                    - type: "stdout"
+                      filter: 'true'
+
+                backends:
+                  - mcp:
+                      targets:
+                        - name: firewall-protected
+                        - name: firewall-scanner
+                      statefulMode: true
+                      prefixMode: true
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agentgateway
+  namespace: default
+  labels:
+    app: agentgateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: agentgateway
+  template:
+    metadata:
+      labels:
+        app: agentgateway
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "15020"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: agentgateway
+          image: ghcr.io/agentgateway/agentgateway:latest
+          ports:
+            - containerPort: 3000
+              name: mcp
+            - containerPort: 15000
+              name: admin-ui
+            - containerPort: 15020
+              name: metrics
+          volumeMounts:
+            - name: config
+              mountPath: /etc/agentgateway
+              readOnly: true
+          args: ["--config", "/etc/agentgateway/config.yaml"]
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 15020
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+      volumes:
+        - name: config
+          configMap:
+            name: agentgateway-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agentgateway
+  namespace: default
+spec:
+  selector:
+    app: agentgateway
+  ports:
+    - name: mcp
+      port: 3000
+      targetPort: 3000
+    - name: admin-ui
+      port: 15000
+      targetPort: 15000
+    - name: metrics
+      port: 15020
+      targetPort: 15020
+  type: ClusterIP
