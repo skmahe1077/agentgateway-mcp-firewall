@@ -255,11 +255,7 @@ kubectl port-forward svc/mcp-tool-firewall 8888:8888 &
 ### Run the Demo
 
 ```bash
-# Automated side-by-side comparison
 bash demo/run-demo.sh
-
-# Interactive walkthrough with pauses between sections
-bash demo/record-demo.sh
 ```
 
 See [RUNBOOK.md](RUNBOOK.md) for the full step-by-step demo walkthrough.
@@ -448,8 +444,7 @@ src/
   cli.py                 # CLI scanner
 
 demo/malicious-mcp-server/  # Poisoned MCP server for testing
-demo/run-demo.sh            # Automated side-by-side comparison script
-demo/record-demo.sh         # Interactive demo recording script
+demo/run-demo.sh            # Full demo script (routes, kill switch, kagent)
 deploy/k8s/                 # Kubernetes manifests (firewall, agentgateway, prometheus, grafana, kagent)
 configs/                    # Config files
 tests/                      # 46 tests
