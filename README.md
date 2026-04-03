@@ -121,6 +121,13 @@ kubectl apply -f deploy/k8s/firewall-deployment.yaml
 kubectl apply -f deploy/k8s/agentgateway.yaml
 kubectl apply -f deploy/k8s/prometheus.yaml
 kubectl apply -f deploy/k8s/grafana.yaml
+
+# Install kagent and deploy the security auditor agent
+OPENAI_API_KEY=sk-dummy kagent install
+kubectl create secret generic kagent-anthropic \
+  --namespace kagent \
+  --from-literal=ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY
+kubectl apply -f deploy/k8s/kagent-security-agent.yaml
 ```
 
 See [RUNBOOK.md](RUNBOOK.md) for the full demo walkthrough with side-by-side comparison.

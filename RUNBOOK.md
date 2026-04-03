@@ -20,18 +20,30 @@ docker build -t malicious-mcp-server:latest demo/malicious-mcp-server/
 kind load docker-image mcp-tool-firewall:latest --name mcp-firewall-demo
 kind load docker-image malicious-mcp-server:latest --name mcp-firewall-demo
 
-# Deploy
+# Deploy core stack
 kubectl apply -f demo/malicious-mcp-server/kmcp.yaml
 kubectl apply -f deploy/k8s/firewall-deployment.yaml
 kubectl apply -f deploy/k8s/agentgateway.yaml
 kubectl apply -f deploy/k8s/prometheus.yaml
 kubectl apply -f deploy/k8s/grafana.yaml
 
+# Install kagent (needs a dummy OpenAI key at install, we'll use Anthropic for our agent)
+OPENAI_API_KEY=sk-dummy kagent install
+
+# Create Anthropic secret for the security auditor agent
+kubectl create secret generic kagent-anthropic \
+  --namespace kagent \
+  --from-literal=ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY
+
+# Deploy the security auditor agent
+kubectl apply -f deploy/k8s/kagent-security-agent.yaml
+
 # Wait for pods
 kubectl get pods
+kubectl get pods -n kagent | grep -E "firewall|mcp-security"
 ```
 
-All 5 pods should be `1/1 Running`:
+Default namespace — 5 pods:
 
 ```
 agentgateway-xxxxx              1/1     Running
@@ -39,6 +51,13 @@ grafana-xxxxx                   1/1     Running
 malicious-mcp-server-xxxxx      1/1     Running
 mcp-tool-firewall-xxxxx         1/1     Running
 prometheus-xxxxx                1/1     Running
+```
+
+kagent namespace — 2 pods:
+
+```
+firewall-tools-xxxxx            1/1     Running
+mcp-security-auditor-xxxxx      1/1     Running
 ```
 
 ## Port Forwards
@@ -172,6 +191,55 @@ curl -s -X POST http://localhost:8888/admin/kill-switch \
   -H "Content-Type: application/json" \
   -d '{"enabled": false}'
 ```
+
+---
+
+## Part 5: kagent Security Auditor
+
+The kagent agent uses the firewall's MCP tools to scan servers and generate reports through natural language.
+
+Open the kagent dashboard:
+
+```bash
+kagent dashboard
+```
+
+Go to the **mcp-security-auditor** agent and try these prompts:
+
+```
+You: Scan the MCP server at malicious-mcp-server:9999 for poisoning attacks
+
+Agent: [calls scan_mcp_server]
+       Found 8 tools, 7 blocked:
+       - get_weather (score: 100) — Prompt Injection + Data Exfiltration
+       - search_files (score: 100) — Cross-Tool Manipulation + Dangerous Commands
+       - calculate (score: 100) — Invisible Characters + Obfuscated Payloads
+       ...
+       1 safe: format_text (score: 0)
+```
+
+```
+You: Generate a full security report
+
+Agent: [calls generate_security_report]
+       Returns markdown with executive summary, per-tool breakdown, remediation steps
+```
+
+```
+You: Check this response for secrets: "aws_access_key_id = AKIAIOSFODNN7EXAMPLE"
+
+Agent: [calls check_tool_response]
+       Found AWS Access Key (severity: 95) ��� should be redacted
+```
+
+```
+You: Activate the kill switch
+
+Agent: [calls toggle_kill_switch with enabled=true]
+       Kill switch active — all tools blocked across all servers
+```
+
+The agent is also available via A2A protocol with two skills: `audit-mcp-server` and `check-tool-safety`.
 
 ---
 

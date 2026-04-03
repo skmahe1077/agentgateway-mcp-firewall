@@ -5,7 +5,7 @@ metadata:
   namespace: kagent
 spec:
   apiKeySecretKey: ANTHROPIC_API_KEY
-  apiKeySecretRef: kagent-anthropic
+  apiKeySecret: kagent-anthropic
   model: claude-sonnet-4-20250514
   provider: Anthropic
 ---
@@ -17,12 +17,12 @@ metadata:
   labels:
     kagent.dev/discovery: enabled
 spec:
+  transportType: stdio
   deployment:
     image: "mcp-tool-firewall:latest"
     port: 8889
     cmd: "python"
-    args: ["src/firewall_mcp_server.py", "--port", "8889"]
-    transportType: "stdio"
+    args: ["-m", "src.firewall_mcp_server", "--port", "8889"]
 ---
 apiVersion: kagent.dev/v1alpha2
 kind: Agent
