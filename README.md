@@ -39,7 +39,7 @@ Agent → agentgateway (:3000) → MCP Tool Firewall (:8888) → Upstream MCP Se
               │                         ├─ Scans tool descriptions (8 regex + 1 LLM detector)
               │                         ├─ Blocks poisoned tools, passes safe ones
               │                         ├─ Scans tool responses for secrets/PII
-              │                         └─ Exposes scanner as MCP tools (:8889)
+              │                         └─ Exposes scanner as MCP tools (:8889, HTTP + stdio)
               │
               ├─ Admin UI (:15000)
               ├─ Metrics (:15020)
@@ -54,7 +54,7 @@ Agent → agentgateway (:3000) → MCP Tool Firewall (:8888) → Upstream MCP Se
 |-----------|-------|------|
 | agentgateway | 3000, 15000, 15020 | MCP proxy, admin UI, metrics |
 | MCP Tool Firewall (proxy) | 8888 | Scans tools/list, blocks poisoned tools, scans responses |
-| MCP Tool Firewall (MCP server) | 8889 | Exposes scanner as 7 MCP tools for agents |
+| MCP Tool Firewall (MCP server) | 8889 | Exposes scanner as 7 MCP tools for agents (HTTP + stdio transport) |
 | Upstream MCP server | 9999 | Target server (demo uses a malicious server) |
 
 ## Key Features
@@ -69,7 +69,7 @@ Agent → agentgateway (:3000) → MCP Tool Firewall (:8888) → Upstream MCP Se
 | Prometheus metrics | `/metrics` endpoint with Grafana dashboard included |
 | JSONL audit logs | Per-day logs with agentgateway identity (who made the request) |
 | CLI scanner | `mcp-firewall-scan` for CI/CD pipelines (exit code 1 = threats found) |
-| Firewall MCP server | 7 tools agents can use to scan other servers programmatically |
+| Firewall MCP server | 7 tools agents can use to scan other servers programmatically (HTTP + stdio) |
 | Gateway lockdown | Firewall only accepts traffic from trusted agentgateway IPs |
 | Streamable HTTP | Speaks the MCP SSE protocol natively |
 | Kubernetes-native | Deployments, Services, Prometheus annotations, kagent/kmcp CRDs |
@@ -121,16 +121,74 @@ kubectl apply -f deploy/k8s/firewall-deployment.yaml
 kubectl apply -f deploy/k8s/agentgateway.yaml
 kubectl apply -f deploy/k8s/prometheus.yaml
 kubectl apply -f deploy/k8s/grafana.yaml
+```
 
-# Install kagent and deploy the security auditor agent
+### kagent Security Auditor (Optional)
+
+The security auditor agent uses Claude (via Anthropic API) as its LLM. You **must** provide a valid `ANTHROPIC_API_KEY` — without it, the agent will fail with `authentication_error`.
+
+kagent installs many default agents — on resource-constrained clusters (e.g., kind), you may need to delete unused agents to free memory (see [Troubleshooting](#troubleshooting)).
+
+```bash
+# Install kagent (needs a dummy OpenAI key at install, we use Anthropic for our agent)
 OPENAI_API_KEY=sk-dummy kagent install
+
+# Set your Anthropic API key (get one at https://console.anthropic.com/settings/keys)
+export ANTHROPIC_API_KEY="sk-ant-api03-your-key-here"
+
+# Create the Kubernetes secret that the agent reads
 kubectl create secret generic kagent-anthropic \
   --namespace kagent \
   --from-literal=ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY
+
+# Deploy the security auditor agent
 kubectl apply -f deploy/k8s/kagent-security-agent.yaml
+
+# (Optional) Free resources by removing unused default kagent agents
+kubectl delete agent helm-agent istio-agent cilium-debug-agent cilium-manager-agent \
+  cilium-policy-agent argo-rollouts-conversion-agent kgateway-agent \
+  observability-agent promql-agent k8s-agent -n kagent
 ```
 
-See [RUNBOOK.md](RUNBOOK.md) for the full demo walkthrough with side-by-side comparison.
+**To update the API key later** (e.g., if the key expired or was invalid):
+
+```bash
+kubectl delete secret kagent-anthropic -n kagent
+kubectl create secret generic kagent-anthropic \
+  --namespace kagent \
+  --from-literal=ANTHROPIC_API_KEY="sk-ant-api03-your-new-key"
+# Restart the agent pod to pick up the new key
+kubectl delete pod -l kagent=mcp-security-auditor -n kagent
+```
+
+**To verify the key is set correctly:**
+
+```bash
+# Should print the first 10 chars of your key
+kubectl get secret kagent-anthropic -n kagent \
+  -o jsonpath='{.data.ANTHROPIC_API_KEY}' | base64 -d | head -c 10; echo "..."
+```
+
+### Port Forwards
+
+```bash
+kubectl port-forward svc/agentgateway 3100:3000 &
+kubectl port-forward svc/agentgateway 15100:15000 &
+kubectl port-forward svc/grafana 3200:3000 &
+kubectl port-forward svc/mcp-tool-firewall 8888:8888 &
+```
+
+### Run the Demo
+
+```bash
+# Automated side-by-side comparison
+bash demo/run-demo.sh
+
+# Interactive walkthrough with pauses between sections
+bash demo/record-demo.sh
+```
+
+See [RUNBOOK.md](RUNBOOK.md) for the full step-by-step demo walkthrough.
 
 ---
 
@@ -219,7 +277,7 @@ The firewall is designed to run behind [agentgateway](https://github.com/agentga
 
 ## kagent Integration
 
-The [kagent](https://kagent.dev) security auditor agent is deployed as Kubernetes CRDs. It uses the firewall's MCP tools for natural language security auditing:
+The [kagent](https://kagent.dev) security auditor agent is deployed as Kubernetes CRDs. It uses the firewall's MCP tools (via stdio transport through kmcp/agentgateway) for natural language security auditing:
 
 ```
 User: "Scan the server at malicious-mcp-server:9999"
@@ -232,6 +290,24 @@ Agent: Found 8 tools, 7 are poisoned:
 ```
 
 It exposes two A2A skills: `audit-mcp-server` and `check-tool-safety`.
+
+The MCP server supports both **HTTP** and **stdio** transports:
+- HTTP mode (`--port 8889`): Used by the standalone firewall deployment and agentgateway
+- stdio mode (`--stdio`): Used by kmcp/kagent for Kubernetes-native MCP server deployments
+
+You can also invoke the agent from the CLI:
+
+```bash
+kagent invoke --agent "mcp-security-auditor" \
+  --task "Scan the MCP server at malicious-mcp-server:9999" --stream
+```
+
+Or open the kagent dashboard:
+
+```bash
+kagent dashboard
+# Opens http://localhost:8501 — navigate to mcp-security-auditor
+```
 
 Manifest: [`deploy/k8s/kagent-security-agent.yaml`](deploy/k8s/kagent-security-agent.yaml)
 
@@ -291,13 +367,15 @@ src/
   scanner.py             # Scanning engine + risk scoring
   semantic_detector.py   # LLM-based analysis using Claude (optional)
   firewall.py            # Proxy — sits between agentgateway and upstream
-  firewall_mcp_server.py # Exposes scanner as 7 MCP tools
+  firewall_mcp_server.py # Exposes scanner as 7 MCP tools (HTTP + stdio transport)
   response_scanner.py    # Scans tool responses for secrets/PII
   policy.py              # YAML policy engine
   metrics.py             # Prometheus metrics
   cli.py                 # CLI scanner
 
 demo/malicious-mcp-server/  # Poisoned MCP server for testing
+demo/run-demo.sh            # Automated side-by-side comparison script
+demo/record-demo.sh         # Interactive demo recording script
 deploy/k8s/                 # Kubernetes manifests (firewall, agentgateway, prometheus, grafana, kagent)
 configs/                    # Config files
 tests/                      # 46 tests

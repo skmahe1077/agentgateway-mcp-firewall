@@ -22,7 +22,7 @@ spec:
     image: "mcp-tool-firewall:latest"
     port: 8889
     cmd: "python"
-    args: ["-m", "src.firewall_mcp_server", "--port", "8889"]
+    args: ["-m", "src.firewall_mcp_server", "--stdio"]
 ---
 apiVersion: kagent.dev/v1alpha2
 kind: Agent

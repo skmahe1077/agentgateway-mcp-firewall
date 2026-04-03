@@ -6,6 +6,8 @@
 #   kubectl port-forward svc/agentgateway 3100:3000 &
 #   kubectl port-forward svc/agentgateway 15100:15000 &
 #   kubectl port-forward svc/grafana 3200:3000 &
+#   kubectl port-forward svc/mcp-tool-firewall 8888:8888 &
+#   kubectl port-forward svc/kagent-ui 8501:80 -n kagent &
 # =============================================================================
 
 GATEWAY_URL="${GATEWAY_URL:-http://localhost:3100}"
@@ -113,17 +115,23 @@ echo ""
 echo -e "  ${RED}Without firewall:${NC}  $DIRECT_COUNT tools exposed (${BLOCKED} poisoned)"
 echo -e "  ${GREEN}With firewall:${NC}     $PROTECTED_COUNT safe tools (${BLOCKED} poisoned tools ${GREEN}BLOCKED${NC})"
 echo ""
-echo -e "  ${CYAN}Attack types detected:${NC}"
-echo "    - Prompt Injection (ignore instructions, <<SYS>> tags)"
-echo "    - Data Exfiltration (send data to external URLs)"
+echo -e "  ${CYAN}Attack types detected (8 regex + 1 LLM detector):${NC}"
+echo "    - Prompt Injection (ignore instructions, <<SYS>> tags, jailbreaks)"
+echo "    - Data Exfiltration (send data to external URLs, markdown image exfil)"
 echo "    - Cross-Tool Manipulation (chain tool calls)"
-echo "    - Invisible Characters (zero-width spaces)"
+echo "    - Invisible Characters (zero-width spaces, RTL overrides)"
 echo "    - Obfuscated Payloads (base64, eval)"
 echo "    - Dangerous Commands (rm -rf, chmod, curl|sh)"
-echo "    - Code Execution (os.system, subprocess, wget malware)"
+echo "    - Description Anomalies (overflow attacks, hidden HTML)"
+echo "    - SSRF / Internal Access (169.254.169.254, localhost, private IPs)"
 echo ""
 echo -e "  ${YELLOW}Open in browser:${NC}"
 echo "    agentgateway Admin UI:  http://localhost:15100/ui"
 echo "    Grafana Dashboard:      http://localhost:3200  (admin/firewall)"
+echo "    kagent Dashboard:       http://localhost:8501"
+echo ""
+echo -e "  ${CYAN}kagent Security Auditor:${NC}"
+echo "    kagent invoke --agent mcp-security-auditor \\"
+echo "      --task \"Scan the MCP server at malicious-mcp-server.default.svc.cluster.local:9999\" --stream"
 echo ""
 echo -e "${BOLD}============================================${NC}"

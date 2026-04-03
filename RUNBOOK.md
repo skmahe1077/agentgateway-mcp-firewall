@@ -5,6 +5,7 @@ This shows the before/after: what an agent sees when connecting to a malicious M
 ## Prerequisites
 
 - Docker, kind, kubectl, curl
+- **`ANTHROPIC_API_KEY`** — required for the kagent security auditor agent (get one at https://console.anthropic.com/settings/keys). Also used for optional semantic analysis in the firewall.
 
 ## Setup
 
@@ -30,13 +31,24 @@ kubectl apply -f deploy/k8s/grafana.yaml
 # Install kagent (needs a dummy OpenAI key at install, we'll use Anthropic for our agent)
 OPENAI_API_KEY=sk-dummy kagent install
 
-# Create Anthropic secret for the security auditor agent
+# --- IMPORTANT: Set your Anthropic API key ---
+# The mcp-security-auditor agent uses Claude as its LLM.
+# Without a valid key, the agent will fail with "authentication_error".
+# Get a key at: https://console.anthropic.com/settings/keys
+export ANTHROPIC_API_KEY="sk-ant-api03-your-key-here"
+
+# Create the Kubernetes secret that the agent reads
 kubectl create secret generic kagent-anthropic \
   --namespace kagent \
   --from-literal=ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY
 
 # Deploy the security auditor agent
 kubectl apply -f deploy/k8s/kagent-security-agent.yaml
+
+# (Recommended) Free resources on kind — remove unused default kagent agents
+kubectl delete agent helm-agent istio-agent cilium-debug-agent cilium-manager-agent \
+  cilium-policy-agent argo-rollouts-conversion-agent kgateway-agent \
+  observability-agent promql-agent k8s-agent -n kagent
 
 # Wait for pods
 kubectl get pods
@@ -53,12 +65,14 @@ mcp-tool-firewall-xxxxx         1/1     Running
 prometheus-xxxxx                1/1     Running
 ```
 
-kagent namespace — 2 pods:
+kagent namespace — 2 pods (plus kagent infra):
 
 ```
 firewall-tools-xxxxx            1/1     Running
 mcp-security-auditor-xxxxx      1/1     Running
 ```
+
+> **Note:** kagent installs ~10 default agents (helm, istio, cilium, etc.), each requesting 384Mi of memory. On resource-constrained clusters (e.g., kind), this can cause pods to get stuck in `Pending`. Delete unused agents as shown above, or force-delete their pods with `kubectl delete pods -n kagent -l kagent=<agent-name> --force --grace-period=0`.
 
 ## Port Forwards
 
@@ -172,6 +186,12 @@ Go to Dashboards → MCP Tool Firewall. Shows total scans, tools blocked, detect
 curl -s http://localhost:8888/metrics
 ```
 
+**Health check**:
+
+```bash
+curl -s http://localhost:8888/health | python3 -m json.tool
+```
+
 ---
 
 ## Part 4: Kill Switch
@@ -184,7 +204,7 @@ curl -s -X POST http://localhost:8888/admin/kill-switch \
   -d '{"enabled": true}'
 ```
 
-Now listing tools through `/mcp` returns zero tools. Turn it off:
+Now listing tools through `/mcp` returns zero upstream tools (scanner tools remain available). Turn it off:
 
 ```bash
 curl -s -X POST http://localhost:8888/admin/kill-switch \
@@ -196,15 +216,19 @@ curl -s -X POST http://localhost:8888/admin/kill-switch \
 
 ## Part 5: kagent Security Auditor
 
-The kagent agent uses the firewall's MCP tools to scan servers and generate reports through natural language.
+The kagent agent uses the firewall's MCP tools (via stdio transport through kmcp/agentgateway) to scan servers and generate reports through natural language.
 
-Open the kagent dashboard:
+### Using the Dashboard
 
 ```bash
-kagent dashboard
+# Port-forward the kagent UI
+kubectl port-forward svc/kagent-ui 8501:80 -n kagent &
+
+# Open in browser
+open http://localhost:8501
 ```
 
-Go to the **mcp-security-auditor** agent and try these prompts:
+Navigate to the **mcp-security-auditor** agent and try these prompts:
 
 ```
 You: Scan the MCP server at malicious-mcp-server:9999 for poisoning attacks
@@ -229,7 +253,7 @@ Agent: [calls generate_security_report]
 You: Check this response for secrets: "aws_access_key_id = AKIAIOSFODNN7EXAMPLE"
 
 Agent: [calls check_tool_response]
-       Found AWS Access Key (severity: 95) ��� should be redacted
+       Found AWS Access Key (severity: 95) — should be redacted
 ```
 
 ```
@@ -237,6 +261,13 @@ You: Activate the kill switch
 
 Agent: [calls toggle_kill_switch with enabled=true]
        Kill switch active — all tools blocked across all servers
+```
+
+### Using the CLI
+
+```bash
+kagent invoke --agent "mcp-security-auditor" \
+  --task "Scan the MCP server at malicious-mcp-server:9999" --stream
 ```
 
 The agent is also available via A2A protocol with two skills: `audit-mcp-server` and `check-tool-safety`.
@@ -258,3 +289,54 @@ kind delete cluster --name mcp-firewall-demo
 | Port-forward dies | Re-run the `kubectl port-forward` commands |
 | No Grafana data | Wait 30s for Prometheus scrape, then refresh |
 | `client must accept...` | Add `-H "Accept: application/json, text/event-stream"` |
+| Pods stuck in `Pending` | Kind node out of memory — delete unused kagent agents (see Setup) |
+| `firewall-tools` MCPServer `READY: False` | Known kmcp readiness detection issue — the pod and agent work correctly |
+| kagent agent `authentication_error` | The `ANTHROPIC_API_KEY` is invalid or expired — see "Updating the API Key" below |
+| `PermissionError: 'logs'` in firewall-tools | Fixed — the MCP server falls back to `/tmp/firewall-logs` in restricted pods |
+| `address already in use` on port 8889 | Fixed — kagent MCPServer uses `--stdio` flag for stdio transport, not HTTP |
+
+### Updating the API Key
+
+If the `mcp-security-auditor` agent fails with `authentication_error`, the `ANTHROPIC_API_KEY` in the Kubernetes secret is invalid or expired.
+
+**Verify the current key:**
+
+```bash
+kubectl get secret kagent-anthropic -n kagent \
+  -o jsonpath='{.data.ANTHROPIC_API_KEY}' | base64 -d | head -c 10; echo "..."
+```
+
+**Replace with a valid key:**
+
+```bash
+# Delete the old secret
+kubectl delete secret kagent-anthropic -n kagent
+
+# Create a new one with your valid key
+kubectl create secret generic kagent-anthropic \
+  --namespace kagent \
+  --from-literal=ANTHROPIC_API_KEY="sk-ant-api03-your-valid-key-here"
+
+# Restart the agent pod to pick up the new key
+kubectl delete pod -l kagent=mcp-security-auditor -n kagent
+```
+
+**Test the key works:**
+
+```bash
+# Quick API validation
+curl -s -X POST https://api.anthropic.com/v1/messages \
+  -H "x-api-key: $(kubectl get secret kagent-anthropic -n kagent -o jsonpath='{.data.ANTHROPIC_API_KEY}' | base64 -d)" \
+  -H "anthropic-version: 2023-06-01" \
+  -H "content-type: application/json" \
+  -d '{"model":"claude-haiku-4-5-20251001","max_tokens":10,"messages":[{"role":"user","content":"hi"}]}'
+```
+
+If the response contains `"type":"message"`, the key is valid. If it contains `"type":"error"`, get a new key from https://console.anthropic.com/settings/keys.
+
+**Then test the agent:**
+
+```bash
+kagent invoke --agent "mcp-security-auditor" \
+  --task "List your available tools" --stream
+```
