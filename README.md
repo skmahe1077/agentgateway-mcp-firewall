@@ -73,7 +73,7 @@ We then add **kagent** as the intelligence layer an AI security auditor agent th
 
 ### Why MCP Tool Firewall?
 
-MCP Tool Firewall is the content security layer that inspects what agentgateway cannot:
+MCP Tool Firewall is the content security layer that extends agentgateway's governance with deep tool description inspection:
 
 - **8 Regex Detectors** - Pattern matching for prompt injection, data exfiltration, cross-tool manipulation, invisible characters, obfuscated payloads, description anomalies, dangerous commands, and SSRF
 - **1 LLM Semantic Detector** - Claude-powered analysis that catches paraphrased attacks, multi-language attacks, and social engineering that regex misses
