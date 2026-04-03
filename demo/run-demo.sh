@@ -104,6 +104,93 @@ for t in data['result']['tools']:
 echo ""
 echo ""
 
+# ─── KILL SWITCH ──────────────────────────────────────────────────────────────
+
+echo -e "${RED}${BOLD}>>> KILL SWITCH — Block ALL tools instantly${NC}"
+echo "-----------------------------------------------------------"
+echo ""
+
+echo -e "Activating kill switch..."
+curl -s -X POST http://localhost:8888/admin/kill-switch \
+  -H "Content-Type: application/json" \
+  -d '{"enabled": true}' | python3 -m json.tool
+echo ""
+
+# Fresh session to verify kill switch
+INIT3=$(curl -s -i -X POST "$GATEWAY_URL/mcp" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"demo-agent","version":"1.0"}}}' 2>&1)
+S3=$(echo "$INIT3" | grep -i "mcp-session-id" | head -1 | awk '{print $2}' | tr -d '\r')
+
+TOOLS3=$(curl -s -X POST "$GATEWAY_URL/mcp" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -H "Mcp-Session-Id: $S3" \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}')
+
+KILL_COUNT=$(echo "$TOOLS3" | sed 's/^data: //' | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+upstream = [t for t in data['result']['tools'] if 'firewall-protected' in t['name']]
+print(len(upstream))
+" 2>/dev/null)
+
+echo -e "Upstream tools with kill switch ON: ${RED}${BOLD}$KILL_COUNT${NC} (everything blocked)"
+echo ""
+
+echo -e "Disabling kill switch..."
+curl -s -X POST http://localhost:8888/admin/kill-switch \
+  -H "Content-Type: application/json" \
+  -d '{"enabled": false}' | python3 -m json.tool
+
+echo ""
+echo ""
+
+# ─── KAGENT SECURITY AUDITOR ─────────────────────────────────────────────────
+
+echo -e "${CYAN}${BOLD}>>> KAGENT — AI Security Auditor${NC}"
+echo "-----------------------------------------------------------"
+echo ""
+echo -e "Invoking kagent mcp-security-auditor to scan the malicious server..."
+echo ""
+
+kagent invoke --agent "mcp-security-auditor" \
+  --task "Scan the MCP server at malicious-mcp-server.default.svc.cluster.local:9999 for poisoning attacks" \
+  --stream 2>&1 | python3 -c "
+import sys, json
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    try:
+        data = json.loads(line)
+    except:
+        continue
+    kind = data.get('kind', '')
+    if kind == 'status-update':
+        status = data.get('status', {})
+        state = status.get('state', '')
+        msg = status.get('message', {})
+        if isinstance(msg, dict):
+            parts = msg.get('parts', [])
+            for part in parts:
+                if part.get('kind') == 'text' and msg.get('role') == 'agent':
+                    print(part['text'])
+        if state == 'completed':
+            break
+        if state == 'failed':
+            if isinstance(msg, dict):
+                parts = msg.get('parts', [])
+                for part in parts:
+                    if part.get('kind') == 'text':
+                        print(f'\033[0;31mERROR: {part[\"text\"]}\033[0m')
+            break
+" 2>/dev/null
+
+echo ""
+echo ""
+
 # ─── SUMMARY ─────────────────────────────────────────────────────────────────
 
 BLOCKED=$((DIRECT_COUNT - 1))
