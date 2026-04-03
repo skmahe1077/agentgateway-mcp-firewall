@@ -22,6 +22,9 @@ class MetricsCollector:
 
     def __init__(self):
         # Counters
+        self.semantic_scans_total: int = 0
+        self.semantic_detections_total: int = 0
+        self.semantic_cache_hits: int = 0
         self.scans_total: int = 0
         self.tools_scanned_total: int = 0
         self.tools_blocked_total: int = 0
@@ -87,6 +90,13 @@ class MetricsCollector:
 
     def record_policy_override(self):
         self.policy_overrides_total += 1
+
+    def record_semantic_scan(self, detected: bool, cached: bool):
+        self.semantic_scans_total += 1
+        if detected:
+            self.semantic_detections_total += 1
+        if cached:
+            self.semantic_cache_hits += 1
 
     def generate_metrics(self) -> str:
         """Generate Prometheus exposition format text."""
@@ -180,6 +190,22 @@ class MetricsCollector:
         lines.append("# HELP mcp_firewall_policy_overrides_total Policy engine override count")
         lines.append("# TYPE mcp_firewall_policy_overrides_total counter")
         lines.append(f"mcp_firewall_policy_overrides_total {self.policy_overrides_total}")
+        lines.append("")
+
+        # Semantic analysis
+        lines.append("# HELP mcp_firewall_semantic_scans_total LLM semantic analysis scans")
+        lines.append("# TYPE mcp_firewall_semantic_scans_total counter")
+        lines.append(f"mcp_firewall_semantic_scans_total {self.semantic_scans_total}")
+        lines.append("")
+
+        lines.append("# HELP mcp_firewall_semantic_detections_total Malicious detections by semantic analysis")
+        lines.append("# TYPE mcp_firewall_semantic_detections_total counter")
+        lines.append(f"mcp_firewall_semantic_detections_total {self.semantic_detections_total}")
+        lines.append("")
+
+        lines.append("# HELP mcp_firewall_semantic_cache_hits_total Semantic analysis cache hits")
+        lines.append("# TYPE mcp_firewall_semantic_cache_hits_total counter")
+        lines.append(f"mcp_firewall_semantic_cache_hits_total {self.semantic_cache_hits}")
         lines.append("")
 
         return "\n".join(lines) + "\n"

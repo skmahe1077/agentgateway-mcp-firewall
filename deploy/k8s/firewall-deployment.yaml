@@ -35,7 +35,13 @@ spec:
               value: "9999"
             - name: AGENTGATEWAY_POD_IP
               value: "agentgateway.default.svc.cluster.local"
-          command: ["python", "-m", "src.firewall"]
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: firewall-anthropic
+                  key: ANTHROPIC_API_KEY
+                  optional: true
+          command: ["./start.sh"]
           args:
             - "--port=8888"
             - "--upstream-host=$(UPSTREAM_HOST)"
@@ -74,18 +80,43 @@ data:
     thresholds:
       block: 51
       warn: 26
+    enabled_patterns:
+      - Prompt Injection
+      - Data Exfiltration
+      - Cross-Tool Manipulation
+      - Invisible Characters
+      - Obfuscated Payloads
+      - Description Anomalies
+      - Dangerous Commands
+      - SSRF / Internal Access
+      - Semantic Analysis
     policies:
       blocklist: []
       allowlist: []
       max_description_length: 5000
+      required_patterns:
+        - Prompt Injection
+        - Data Exfiltration
+        - Dangerous Commands
+        - SSRF / Internal Access
       server_trust: []
+    semantic_analysis:
+      enabled: true
+      model: "claude-haiku-4-5-20251001"
+      confidence_threshold: 70
+      cache_size: 256
     response_scanning:
       enabled: true
       detect_secrets: true
       detect_pii: true
+      detect_data_leaks: true
       redact_critical: true
     kill_switch:
       enabled: false
+    logging:
+      dir: "logs"
+      verbose: true
+      format: "jsonl"
 ---
 apiVersion: v1
 kind: Service

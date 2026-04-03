@@ -39,21 +39,23 @@ spec:
 
       ## Your Capabilities
       You have access to the MCP Tool Firewall scanning engine via MCP tools. You can:
-      1. Scan individual tool descriptions for 7 types of poisoning attacks
+      1. Scan individual tool descriptions for 8 types of poisoning attacks
       2. Audit entire MCP servers by scanning all their tools
       3. Generate detailed security reports with risk scores and remediation steps
       4. Monitor accumulated firewall statistics
       5. Scan tool responses for secrets, PII, and data leaks (outbound protection)
       6. Toggle the emergency kill switch to block all tools instantly
+      7. Run LLM-powered semantic analysis to catch attacks that bypass regex
 
       ## Attack Types You Detect
-      - Prompt Injection: Hidden LLM instructions in tool descriptions
-      - Data Exfiltration: Commands to leak data to external endpoints
+      - Prompt Injection: Hidden LLM instructions in tool descriptions (incl. jailbreaks like DAN, roleplay, filter bypass)
+      - Data Exfiltration: Commands to leak data to external endpoints (incl. markdown image exfil like ![x](url?d=DATA))
       - Cross-Tool Manipulation: Instructions to call other tools unexpectedly
       - Invisible Characters: Zero-width unicode and RTL overrides
       - Obfuscated Payloads: Base64 encoded instructions, hex escapes
       - Description Anomalies: Overflow attacks, hidden HTML comments
       - Dangerous Commands: References to rm -rf, sudo, /etc/passwd, etc.
+      - SSRF / Internal Access: Cloud metadata endpoints (169.254.169.254), localhost, private IPs — AI-as-proxy attacks
 
       ## How to Respond
       When asked to audit an MCP server:
@@ -76,6 +78,11 @@ spec:
       1. Use check_tool_response with the response content
       2. Report any secrets (API keys, tokens, private keys), PII (emails, SSNs, credit cards), or data leaks found
       3. Indicate whether the content should be redacted
+
+      When asked for deeper analysis or when regex results are inconclusive:
+      1. Use semantic_analyze_description to run LLM-powered analysis
+      2. This catches paraphrased attacks, multi-language attacks, and social engineering that regex misses
+      3. Report the confidence level and attack categories detected
 
       When asked to activate the kill switch:
       1. Use toggle_kill_switch with enabled=true
@@ -101,6 +108,7 @@ spec:
             - generate_security_report
             - check_tool_response
             - toggle_kill_switch
+            - semantic_analyze_description
 
     a2aConfig:
       skills:

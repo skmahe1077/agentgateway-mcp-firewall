@@ -40,6 +40,10 @@ kind load docker-image mcp-tool-firewall:latest --name mcp-firewall-demo
 # Build malicious server image and load into kind
 docker build -t malicious-mcp-server:latest demo/malicious-mcp-server/
 kind load docker-image malicious-mcp-server:latest --name mcp-firewall-demo
+
+# (Optional) Create secret for semantic analysis
+kubectl create secret generic firewall-anthropic \
+  --from-literal=ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY
 ```
 
 ## Step 4: Deploy Malicious MCP Server via kmcp
@@ -152,7 +156,7 @@ kind delete cluster --name mcp-firewall-demo
 |-----------|--------|--------|
 | 0:00-0:30 | Intro | "Secure & Govern MCP — a two-layer defense for AI agents using agentgateway + firewall + kagent" |
 | 0:30-1:00 | Show problem | curl malicious server directly — all 8 tools returned, show poisoned descriptions |
-| 1:00-1:30 | Show architecture | Two layers: agentgateway (governance: auth, RBAC, rate limits) → firewall (content: poisoning detection) |
+| 1:00-1:30 | Show architecture | Two layers: agentgateway (governance: auth, RBAC, rate limits) → firewall (content: 8 regex + 1 semantic detectors) |
 | 1:30-2:00 | Deploy stack | `kubectl apply` all manifests, show agentgateway Admin UI on :15000 |
 | 2:00-2:30 | agentgateway governance | Show MCP AuthZ rules (CEL), rate limiting config, access logging for MCP traffic |
 | 2:30-3:00 | Test firewall | curl through agentgateway → firewall, show 7 blocked / 1 allowed |

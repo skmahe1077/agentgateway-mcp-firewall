@@ -22,10 +22,12 @@ from aiohttp import web, ClientSession
 from .scanner import ToolScanner
 from .reporter import AuditReporter
 from .response_scanner import ResponseScanner
+from .semantic_detector import SemanticDetector
 
 scanner = ToolScanner()
 reporter = AuditReporter(log_dir="logs", verbose=False)
 response_scanner = ResponseScanner()
+semantic_detector = SemanticDetector()
 
 # Kill switch state (shared with proxy if co-located)
 _kill_switch_enabled = False
@@ -102,6 +104,18 @@ TOOLS = [
             "required": ["enabled"],
         },
     },
+    {
+        "name": "semantic_analyze_description",
+        "description": "Use LLM-based semantic analysis to detect malicious intent in a tool description. Catches attacks that bypass regex patterns: paraphrased injections, multi-language attacks, social engineering, and novel attack patterns. Requires ANTHROPIC_API_KEY.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "tool_name": {"type": "string", "description": "Name of the tool"},
+                "tool_description": {"type": "string", "description": "Description text to analyze semantically"},
+            },
+            "required": ["tool_name", "tool_description"],
+        },
+    },
 ]
 
 
@@ -169,6 +183,46 @@ async def handle_toggle_kill_switch(params: dict) -> dict:
     }
 
 
+async def handle_semantic_analyze(params: dict) -> dict:
+    tool_name = params["tool_name"]
+    tool_description = params["tool_description"]
+
+    if not semantic_detector.is_available:
+        return {
+            "error": "Semantic detector unavailable — set ANTHROPIC_API_KEY to enable",
+            "available": False,
+        }
+
+    analysis = semantic_detector.analyze(tool_name, tool_description)
+    if analysis is None:
+        return {"error": "Semantic analysis failed", "available": True}
+
+    # Also run regex scan for comparison
+    regex_result = scanner.scan_tool(tool_name, tool_description)
+
+    return {
+        "semantic_analysis": analysis.to_dict(),
+        "regex_scan": {
+            "risk_score": regex_result.risk_score,
+            "risk_level": regex_result.risk_level,
+            "blocked": regex_result.blocked,
+            "detections": [d.to_dict() for d in regex_result.detections if d.matched],
+        },
+        "combined_verdict": {
+            "malicious": analysis.malicious or regex_result.blocked,
+            "reason": (
+                f"Semantic: {analysis.reasoning}"
+                if analysis.malicious and not regex_result.blocked
+                else f"Regex: score={regex_result.risk_score}"
+                if regex_result.blocked and not analysis.malicious
+                else f"Both: semantic + regex (score={regex_result.risk_score})"
+                if analysis.malicious and regex_result.blocked
+                else "Clean by both regex and semantic analysis"
+            ),
+        },
+    }
+
+
 TOOL_HANDLERS = {
     "scan_tool_description": handle_scan_tool_description,
     "scan_mcp_server": handle_scan_mcp_server,
@@ -176,6 +230,7 @@ TOOL_HANDLERS = {
     "generate_security_report": handle_generate_security_report,
     "check_tool_response": handle_check_tool_response,
     "toggle_kill_switch": handle_toggle_kill_switch,
+    "semantic_analyze_description": handle_semantic_analyze,
 }
 
 

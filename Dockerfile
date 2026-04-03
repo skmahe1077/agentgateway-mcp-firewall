@@ -6,7 +6,9 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY src/ src/
+COPY configs/ configs/
+COPY start.sh .
 
 EXPOSE 8888 8889
 
-CMD ["python", "-m", "src.firewall"]
+CMD ["./start.sh"]

@@ -21,6 +21,7 @@ import json
 import logging
 import os
 import time
+import uuid
 from ipaddress import ip_address, ip_network
 from typing import List, Optional
 
@@ -55,11 +56,17 @@ class MCPToolFirewall:
         kill_switch: bool = False,
         config_path: Optional[str] = None,
         trusted_gateways: Optional[List[str]] = None,
+        enable_semantic: bool = True,
+        semantic_api_key: Optional[str] = None,
+        semantic_model: str = "claude-haiku-4-5-20251001",
     ):
         self.upstream_url = f"http://{upstream_host}:{upstream_port}"
         self.scanner = ToolScanner(
             block_threshold=block_threshold,
             warn_threshold=warn_threshold,
+            enable_semantic=enable_semantic,
+            semantic_api_key=semantic_api_key,
+            semantic_model=semantic_model,
         )
         self.reporter = AuditReporter(log_dir=log_dir)
         self.response_scanner = ResponseScanner()
@@ -80,8 +87,13 @@ class MCPToolFirewall:
 
         self.metrics.record_kill_switch(kill_switch)
 
+        # Session management for Streamable HTTP
+        self.sessions: dict = {}
+
         self.app = web.Application()
         self.app.router.add_post("/mcp", self.handle_jsonrpc)
+        self.app.router.add_get("/mcp", self.handle_sse_get)
+        self.app.router.add_delete("/mcp", self.handle_session_delete)
         self.app.router.add_get("/health", self.handle_health)
         self.app.router.add_get("/metrics", self.handle_metrics)
         self.app.router.add_get("/admin/status", self.handle_admin_status)
@@ -132,7 +144,8 @@ class MCPToolFirewall:
     async def handle_metrics(self, request: web.Request) -> web.Response:
         return web.Response(
             text=self.metrics.generate_metrics(),
-            content_type="text/plain; version=0.0.4; charset=utf-8",
+            content_type="text/plain",
+            charset="utf-8",
         )
 
     async def handle_admin_status(self, request: web.Request) -> web.Response:
@@ -159,6 +172,50 @@ class MCPToolFirewall:
                 {"error": str(e)}, status=400
             )
 
+    def _wants_sse(self, request: web.Request) -> bool:
+        """Check if client accepts SSE (Streamable HTTP MCP)."""
+        accept = request.headers.get("Accept", "")
+        return "text/event-stream" in accept
+
+    def _sse_response(self, data: dict, session_id: str = None) -> web.Response:
+        """Return a Server-Sent Events formatted response."""
+        body = f"data: {json.dumps(data)}\n\n"
+        headers = {"Content-Type": "text/event-stream", "Cache-Control": "no-cache"}
+        if session_id:
+            headers["Mcp-Session-Id"] = session_id
+        return web.Response(text=body, headers=headers)
+
+    def _json_or_sse(self, data: dict, request: web.Request, session_id: str = None) -> web.Response:
+        """Return SSE if client accepts it, otherwise plain JSON."""
+        if self._wants_sse(request):
+            return self._sse_response(data, session_id)
+        resp = web.json_response(data)
+        if session_id:
+            resp.headers["Mcp-Session-Id"] = session_id
+        return resp
+
+    async def handle_sse_get(self, request: web.Request) -> web.Response:
+        """Handle GET /mcp for SSE stream establishment."""
+        session_id = request.headers.get("Mcp-Session-Id")
+        if not session_id or session_id not in self.sessions:
+            return web.json_response(
+                {"jsonrpc": "2.0", "error": {"code": -32001, "message": "Invalid or missing session"}, "id": None},
+                status=400,
+            )
+        return web.Response(
+            text="data: {}\n\n",
+            content_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "Mcp-Session-Id": session_id},
+        )
+
+    async def handle_session_delete(self, request: web.Request) -> web.Response:
+        """Handle DELETE /mcp to close a session."""
+        session_id = request.headers.get("Mcp-Session-Id")
+        if session_id and session_id in self.sessions:
+            del self.sessions[session_id]
+            logger.info(f"Session closed: {session_id}")
+        return web.Response(status=204)
+
     async def handle_jsonrpc(self, request: web.Request) -> web.Response:
         try:
             # Enforce gateway lockdown — reject traffic not from agentgateway
@@ -167,7 +224,7 @@ class MCPToolFirewall:
                     f"Rejected request from untrusted source: "
                     f"{request.transport.get_extra_info('peername')}"
                 )
-                return web.json_response(
+                return self._json_or_sse(
                     {
                         "jsonrpc": "2.0",
                         "error": {
@@ -176,7 +233,7 @@ class MCPToolFirewall:
                         },
                         "id": None,
                     },
-                    status=403,
+                    request,
                 )
 
             # Extract agentgateway-forwarded identity
@@ -193,6 +250,19 @@ class MCPToolFirewall:
 
             req_id = req_data.get("id")
             method = req_data.get("method", "")
+
+            # Session management for Streamable HTTP
+            session_id = request.headers.get("Mcp-Session-Id")
+
+            if method == "initialize":
+                session_id = str(uuid.uuid4())
+                self.sessions[session_id] = {"created": time.time()}
+                logger.info(f"New MCP session: {session_id}")
+            elif session_id and session_id not in self.sessions:
+                return self._json_or_sse(
+                    {"jsonrpc": "2.0", "error": {"code": -32001, "message": "Unknown session"}, "id": req_id},
+                    request,
+                )
 
             if req_id is not None:
                 self.pending_requests[req_id] = method
@@ -213,18 +283,18 @@ class MCPToolFirewall:
             if req_id is not None:
                 self.pending_requests.pop(req_id, None)
 
-            return web.json_response(inspected)
+            return self._json_or_sse(inspected, request, session_id)
 
         except json.JSONDecodeError:
-            return web.json_response(
+            return self._json_or_sse(
                 {"jsonrpc": "2.0", "error": {"code": -32700, "message": "Parse error"}, "id": None},
-                status=400,
+                request,
             )
         except Exception as e:
             logger.error(f"Proxy error: {e}")
-            return web.json_response(
+            return self._json_or_sse(
                 {"jsonrpc": "2.0", "error": {"code": -32603, "message": str(e)}, "id": None},
-                status=502,
+                request,
             )
 
     def _inspect_message(
@@ -401,6 +471,23 @@ def main():
         default=None,
         help="Comma-separated IPs/CIDRs of trusted agentgateway instances (e.g. 10.0.0.5,10.96.0.0/16)",
     )
+    parser.add_argument(
+        "--enable-semantic",
+        action="store_true",
+        default=True,
+        help="Enable LLM-based semantic analysis (requires ANTHROPIC_API_KEY)",
+    )
+    parser.add_argument(
+        "--disable-semantic",
+        action="store_true",
+        default=False,
+        help="Disable LLM-based semantic analysis",
+    )
+    parser.add_argument(
+        "--semantic-model",
+        default="claude-haiku-4-5-20251001",
+        help="Model for semantic analysis (default: claude-haiku-4-5-20251001)",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
@@ -411,6 +498,8 @@ def main():
         else []
     )
 
+    enable_semantic = args.enable_semantic and not args.disable_semantic
+
     firewall = MCPToolFirewall(
         upstream_host=args.upstream_host,
         upstream_port=args.upstream_port,
@@ -420,12 +509,17 @@ def main():
         kill_switch=args.kill_switch,
         config_path=args.config,
         trusted_gateways=trusted,
+        enable_semantic=enable_semantic,
+        semantic_model=args.semantic_model,
     )
+
+    semantic_status = "enabled" if (firewall.scanner.semantic_detector and firewall.scanner.semantic_detector.is_available) else "disabled"
 
     print(f"MCP Tool Firewall starting on port {args.port}")
     print(f"Upstream: {firewall.upstream_url}")
     print(f"Block threshold: {args.block_threshold}, Warn threshold: {args.warn_threshold}")
     print(f"Kill switch: {'ENABLED' if args.kill_switch else 'disabled'}")
+    print(f"Semantic analysis: {semantic_status} (model: {args.semantic_model})")
     print(f"Policy engine: {'loaded from ' + args.config if args.config else 'default (no config)'}")
     print(f"Gateway lockdown: {trusted if trusted else 'disabled (accepting all sources)'}")
     print(f"Endpoints: /mcp (proxy), /health, /metrics, /admin/status, /admin/kill-switch")
