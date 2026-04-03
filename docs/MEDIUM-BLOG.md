@@ -131,7 +131,7 @@ The result: an AI agent that can audit MCP servers and respond to security threa
 
 ### What the Agent Can Do
 
-**Audit entire servers:** Tell it "Scan the MCP server at malicious-mcp-server:9999 for poisoning attacks" and it calls the firewall's scanning tools, analyzes every tool on the server, and returns a summary — how many tools found, how many are safe vs. blocked, what attack types were detected, and what to do about each one.
+**Audit entire servers:** Tell it "Scan the MCP server at malicious-mcp-server.default.svc.cluster.local:9999 for poisoning attacks" and it calls the firewall's scanning tools, analyzes every tool on the server, and returns a summary — how many tools found, how many are safe vs. blocked, what attack types were detected, and what to do about each one.
 
 **Explain why detections matter:** Instead of just "prompt injection detected," the agent says "This prompt injection embeds a `<<SYS>>` override that could reprogram the agent into a data extraction tool, causing it to leak all user conversation data to an external endpoint."
 

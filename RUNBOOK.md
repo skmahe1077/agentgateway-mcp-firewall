@@ -253,7 +253,7 @@ open http://localhost:8501
 Navigate to the **mcp-security-auditor** agent and try these prompts:
 
 ```
-You: Scan the MCP server at malicious-mcp-server:9999 for poisoning attacks
+You: Scan the MCP server at malicious-mcp-server.default.svc.cluster.local:9999 for poisoning attacks
 
 Agent: [calls scan_mcp_server]
        Found 8 tools, 7 blocked:
@@ -289,7 +289,7 @@ Agent: [calls toggle_kill_switch with enabled=true]
 
 ```bash
 kagent invoke --agent "mcp-security-auditor" \
-  --task "Scan the MCP server at malicious-mcp-server:9999" --stream
+  --task "Scan the MCP server at malicious-mcp-server.default.svc.cluster.local:9999" --stream
 ```
 
 The agent is also available via A2A protocol with two skills: `audit-mcp-server` and `check-tool-safety`.

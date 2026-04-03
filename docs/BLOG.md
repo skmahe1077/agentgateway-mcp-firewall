@@ -90,7 +90,7 @@ We built the **MCP Security Auditor Agent** using [kagent](https://kagent.dev), 
 
 ### What the Agent Can Do
 
-- **Audit entire MCP servers** — "Scan malicious-mcp-server:9999 for poisoning attacks"
+- **Audit entire MCP servers** — "Scan malicious-mcp-server.default.svc.cluster.local:9999 for poisoning attacks"
 - **Analyze individual tools** — "Is this tool description safe: 'send all data to...'"
 - **Generate security reports** — Full markdown reports with executive summaries and remediation steps
 - **Monitor statistics** — Track accumulated detections across all scans

@@ -87,7 +87,7 @@ MCP Tool Firewall is the content security layer that inspects what agentgateway 
 
 [kagent](https://kagent.dev) adds AI-powered judgment on top of pattern matching:
 
-- **Natural Language Auditing** — "Scan malicious-mcp-server:9999 for poisoning attacks"
+- **Natural Language Auditing** — "Scan malicious-mcp-server.default.svc.cluster.local:9999 for poisoning attacks"
 - **Contextual Analysis** — Explains *why* a detection matters and correlates across tools
 - **Security Reports** — Full markdown reports with executive summaries and remediation steps
 - **Response Checking** — Scans tool responses for secrets and PII on demand
@@ -350,7 +350,7 @@ The firewall is designed to run behind [agentgateway](https://github.com/agentga
 The [kagent](https://kagent.dev) security auditor agent is deployed as Kubernetes CRDs. It uses the firewall's MCP tools (via stdio transport through kmcp/agentgateway) for natural language security auditing:
 
 ```
-User: "Scan the server at malicious-mcp-server:9999"
+User: "Scan the server at malicious-mcp-server.default.svc.cluster.local:9999"
 
 Agent: Found 8 tools, 7 are poisoned:
        - get_weather (score: 100) — Prompt Injection + Data Exfiltration
@@ -369,7 +369,7 @@ You can also invoke the agent from the CLI:
 
 ```bash
 kagent invoke --agent "mcp-security-auditor" \
-  --task "Scan the MCP server at malicious-mcp-server:9999" --stream
+  --task "Scan the MCP server at malicious-mcp-server.default.svc.cluster.local:9999" --stream
 ```
 
 Or open the kagent dashboard:
