@@ -108,16 +108,29 @@ MCP Tool Firewall is the content security layer that inspects what agentgateway 
 ![Architecture Diagram](docs/architecture.svg)
 
 ```
-Agent → agentgateway (:3000) → MCP Tool Firewall (:8888) → Upstream MCP Server
-              │                         │
-              │                         ├─ Scans tool descriptions (8 regex + 1 LLM detector)
-              │                         ├─ Blocks poisoned tools, passes safe ones
-              │                         ├─ Scans tool responses for secrets/PII
-              │                         └─ Exposes scanner as MCP tools (:8889, HTTP + stdio)
-              │
-              ├─ Admin UI (:15000)
-              ├─ Metrics (:15020)
-              └─ Routes /mcp (protected) vs /direct (unprotected)
+                          +-------------------------------------------+
+                          |       kagent Security Auditor             |
+                          |      (Kubernetes AI Agent)                |
+                          |  "Scan server X for poisoning attacks"    |
+                          +--------------------+----------------------+
+                                               |
+                                               | uses MCP tools
+                                               | (via agentgateway)
+                                               v
++---------+  +----------------------------+  +-------------------------+  +------------------+
+|         |  |       agentgateway         |  |    MCP Tool Firewall    |  |   Upstream MCP   |
+|  Agent  |->|     GOVERNANCE LAYER       |->|     SECURITY LAYER      |->|   Server         |
+| (Client)|  |                            |  |                         |  |                  |
+|         |  | 1. MCP AuthN (JWT/OAuth)   |  |  6. 9 detectors (8+LLM) |  | (deployed via    |
++---------+  | 2. MCP AuthZ (CEL RBAC)   |  |  7. Risk scoring        |  |  kmcp CRD)       |
+             | 3. Rate limiting           |  |  8. Policy engine       |  +------------------+
+             | 4. Access logging          |  |  9. Response scanning   |
+             | 5. Identity forwarding ----|->| 10. Kill switch         |
+             |    (X-Agentgateway-*)      |  | 11. Gateway lockdown    |
+             |                            |  | 12. Prometheus metrics   |
+             | Admin UI  (:15000)         |  | 13. Identity-aware      |
+             | Metrics   (:15020)         |  |     audit logging       |
+             +----------------------------+  +-------------------------+
 ```
 
 **Layer 1 — agentgateway (governance):** Controls *who* can access *which* tools. Auth, routing, rate limiting, observability.
