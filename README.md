@@ -107,7 +107,7 @@ MCP Tool Firewall is the content security layer that extends agentgateway's gove
 
 ![Architecture Diagram](docs/architecture.svg)
 
-![Detailed Security Architecture](docs/mcp_agentgateway_security_architecture.svg)
+![Three-Layer Security Architecture](docs/mcp_agentgateway_security_architecture.svg)
 
 **Layer 1 - agentgateway (governance):** Controls *who* can access *which* tools. Auth, routing, rate limiting, observability.
 
