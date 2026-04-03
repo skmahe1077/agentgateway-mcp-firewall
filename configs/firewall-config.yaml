@@ -12,6 +12,8 @@ enabled_patterns:
   - Obfuscated Payloads
   - Description Anomalies
   - Dangerous Commands
+  - SSRF / Internal Access   # Cloud metadata, localhost, private IPs
+  - Semantic Analysis        # LLM-based (requires ANTHROPIC_API_KEY)
 
 # Policy engine rules
 policies:
@@ -33,6 +35,7 @@ policies:
     - Prompt Injection
     - Data Exfiltration
     - Dangerous Commands
+    - SSRF / Internal Access
 
   # Per-server trust levels with custom thresholds
   server_trust: []
@@ -44,6 +47,16 @@ policies:
     #   trust_level: "low"
     #   block_threshold: 30
     #   warn_threshold: 15
+
+# Semantic analysis (LLM-based detection)
+# Catches attacks that bypass regex: paraphrased injections,
+# multi-language attacks, social engineering, and novel patterns
+semantic_analysis:
+  enabled: true                       # Set to false to disable
+  model: "claude-haiku-4-5-20251001"  # Fast model for real-time scanning
+  confidence_threshold: 70            # Only flag if confidence >= this (0-100)
+  cache_size: 256                     # LRU cache for repeated descriptions
+  # API key: set ANTHROPIC_API_KEY env var (never put keys in config files)
 
 # Response scanning (outbound)
 response_scanning:

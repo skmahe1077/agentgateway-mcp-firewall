@@ -1,8 +1,9 @@
 """
 MCP Tool Description Scanner
 
-Scans tool descriptions for poisoning attacks using pattern detectors.
-Calculates risk scores, determines risk levels, and filters dangerous tools.
+Scans tool descriptions for poisoning attacks using pattern detectors
+and optional LLM-based semantic analysis. Calculates risk scores,
+determines risk levels, and filters dangerous tools.
 """
 
 import time
@@ -10,6 +11,7 @@ from dataclasses import dataclass, field
 from typing import List, Optional, Tuple, Dict, Any
 
 from .patterns import ALL_DETECTORS, DetectionResult
+from .semantic_detector import SemanticDetector
 
 
 @dataclass
@@ -64,6 +66,9 @@ class ToolScanner:
         block_threshold: int = 51,
         warn_threshold: int = 26,
         enabled_patterns: Optional[List[str]] = None,
+        enable_semantic: bool = True,
+        semantic_api_key: Optional[str] = None,
+        semantic_model: str = "claude-haiku-4-5-20251001",
     ):
         self.block_threshold = block_threshold
         self.warn_threshold = warn_threshold
@@ -74,6 +79,14 @@ class ToolScanner:
             ]
         else:
             self.detectors = ALL_DETECTORS
+
+        # Initialize semantic detector (LLM-based analysis)
+        self.semantic_detector: Optional[SemanticDetector] = None
+        if enable_semantic:
+            self.semantic_detector = SemanticDetector(
+                api_key=semantic_api_key,
+                model=semantic_model,
+            )
 
     def _calculate_risk_score(self, detections: List[DetectionResult]) -> int:
         matched = [d for d in detections if d.matched]
@@ -105,6 +118,12 @@ class ToolScanner:
         for detector in self.detectors:
             result = detector.detect(name, description)
             detections.append(result)
+
+        # Run LLM-based semantic analysis if available
+        if self.semantic_detector and self.semantic_detector.is_available:
+            analysis = self.semantic_detector.analyze(name, description)
+            semantic_result = self.semantic_detector.to_detection_result(analysis)
+            detections.append(semantic_result)
 
         risk_score = self._calculate_risk_score(detections)
         risk_level = self._get_risk_level(risk_score)

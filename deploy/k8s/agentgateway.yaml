@@ -24,145 +24,55 @@ metadata:
 data:
   config.yaml: |
     # ---------------------------------------------------------------------------
-    # Static Configuration — Admin, Observability, Tracing
+    # agentgateway — Central Governance Plane for MCP/AI Agent Traffic
+    #
+    # This config routes all MCP traffic through the firewall for scanning.
+    # agentgateway provides: Admin UI, Metrics, CORS, Rate Limiting, Routing.
     # ---------------------------------------------------------------------------
+
     config:
       adminAddr: "0.0.0.0:15000"
-      statsAddr: "0.0.0.0:15020"
-      logging:
-        level: info
-        format: json
 
-    # ---------------------------------------------------------------------------
-    # MCP Connectivity — Targets with per-server policies
-    # ---------------------------------------------------------------------------
-    mcp:
-      port: 3000
-      targets:
-        # Target 1: Firewall-protected upstream (production path)
-        # All tools/list responses are scanned for poisoning before reaching agents
-        - name: firewall-protected
-          mcp:
-            host: mcp-tool-firewall
-            port: 8888
-            path: /mcp
-          policies:
-            # MCP Authorization: CEL-based RBAC per tool
-            mcpAuthorization:
-              rules:
-                # Rule 1: Any authenticated user can list tools
-                - 'mcp.method == "list_tools"'
-                # Rule 2: Only users with "operator" role can call tools
-                - 'mcp.method == "call_tool" && has(jwt.sub)'
-                # Rule 3: Block direct access to known-dangerous tool names
-                - 'mcp.tool.name != "run_diagnostics" && mcp.tool.name != "search_files"'
-
-        # Target 2: Firewall MCP Server (security scanning tools)
-        # Exposed so the kagent security auditor agent can scan servers
-        - name: firewall-scanner
-          mcp:
-            host: mcp-tool-firewall
-            port: 8889
-            path: /mcp
-          policies:
-            mcpAuthorization:
-              rules:
-                # Only the security auditor agent can use scanning tools
-                - 'has(jwt.sub) && jwt.role == "security-auditor"'
-
-        # Target 3: Direct access (for comparison/demo — no firewall)
-        - name: unprotected-direct
-          mcp:
-            host: malicious-mcp-server
-            port: 9999
-            path: /mcp
-          policies:
-            mcpAuthorization:
-              rules:
-                # Only admin users can bypass the firewall (for testing)
-                - 'has(jwt.sub) && jwt.role == "admin"'
-
-  # ---------------------------------------------------------------------------
-  # Dynamic Configuration — Listeners, Routes, Policies
-  # ---------------------------------------------------------------------------
-  dynamic.yaml: |
     binds:
       - port: 3000
         listeners:
-          - name: mcp-gateway
-            protocol: MCP
-            hostname: "*"
-            routes:
-              - name: secured-mcp-route
+          - routes:
+              # Route 1: Firewall-protected path (production)
+              # All tools/list responses are scanned for poisoning
+              - matches:
+                  - path:
+                      exact: "/mcp"
                 policies:
-                  # -------------------------------------------------------
-                  # MCP Authentication — JWT validation
-                  # -------------------------------------------------------
-                  mcpAuthentication:
-                    issuer: "https://auth.example.com"
-                    jwks:
-                      url: "https://auth.example.com/.well-known/jwks.json"
-                    resourceMetadata:
-                      resource: "http://agentgateway:3000/mcp"
-                      scopesSupported:
-                        - "mcp:read"
-                        - "mcp:write"
-                        - "mcp:admin"
-                      bearerMethodsSupported:
-                        - "header"
-
-                  # -------------------------------------------------------
-                  # Rate Limiting — Prevent abuse of MCP tools
-                  # -------------------------------------------------------
-                  localRateLimit:
-                    # Global: 100 tool calls per minute across all agents
-                    - maxTokens: 100
-                      tokensPerFill: 100
-                      fillInterval: "60s"
-                      type: "global"
-                    # Per-agent: 20 tool calls per minute per authenticated user
-                    - maxTokens: 20
-                      tokensPerFill: 20
-                      fillInterval: "60s"
-                      type: "per-connection"
-
-                  # -------------------------------------------------------
-                  # CORS — Control cross-origin MCP access
-                  # -------------------------------------------------------
                   cors:
-                    allowOrigins:
-                      - exact: "https://dashboard.example.com"
-                    allowMethods:
-                      - POST
-                    allowHeaders:
-                      - Authorization
-                      - Content-Type
-                    maxAge: 3600
-
-                  # -------------------------------------------------------
-                  # Access Logging — Structured MCP audit trail
-                  # -------------------------------------------------------
-                  accessLogging:
-                    - type: "stdout"
-                      filter: 'true'
-
-                  # -------------------------------------------------------
-                  # Header Forwarding — Pass identity to firewall
-                  # -------------------------------------------------------
-                  requestHeaders:
-                    set:
-                      X-Agentgateway-User: "%REQ(jwt.sub)%"
-                      X-Agentgateway-Role: "%REQ(jwt.role)%"
-                      X-Agentgateway-Request-Id: "%REQ(x-request-id)%"
-                      X-Agentgateway-Target: "%UPSTREAM_TARGET%"
-
+                    allowOrigins: ["*"]
+                    allowHeaders: ["*"]
+                    exposeHeaders: ["Mcp-Session-Id"]
                 backends:
                   - mcp:
                       targets:
+                        # Target 1: Through firewall (scans + blocks poisoned tools)
                         - name: firewall-protected
+                          mcp:
+                            host: http://mcp-tool-firewall:8888/mcp
+                        # Target 2: Firewall MCP server (scanning tools for agents)
                         - name: firewall-scanner
-                      statefulMode: true
-                      prefixMode: true
+                          mcp:
+                            host: http://mcp-tool-firewall:8889/mcp
+
+              # Route 2: Direct unprotected path (demo comparison)
+              - matches:
+                  - path:
+                      exact: "/direct"
+                policies:
+                  cors:
+                    allowOrigins: ["*"]
+                    allowHeaders: ["*"]
+                backends:
+                  - mcp:
+                      targets:
+                        - name: unprotected-direct
+                          mcp:
+                            host: http://malicious-mcp-server:9999/mcp
 
 ---
 apiVersion: apps/v1
@@ -196,15 +106,17 @@ spec:
               name: admin-ui
             - containerPort: 15020
               name: metrics
+            - containerPort: 15021
+              name: readiness
           volumeMounts:
             - name: config
               mountPath: /etc/agentgateway
               readOnly: true
-          args: ["--config", "/etc/agentgateway/config.yaml"]
+          args: ["--file", "/etc/agentgateway/config.yaml"]
           readinessProbe:
             httpGet:
-              path: /healthz
-              port: 15020
+              path: /healthz/ready
+              port: 15021
             initialDelaySeconds: 5
             periodSeconds: 10
           resources:

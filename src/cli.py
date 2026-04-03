@@ -26,6 +26,7 @@ import sys
 from .scanner import ToolScanner
 from .reporter import AuditReporter
 from .response_scanner import ResponseScanner
+from .semantic_detector import SemanticDetector
 
 
 async def _fetch_and_scan(host: str, port: int, scanner: ToolScanner, reporter: AuditReporter):
@@ -90,10 +91,19 @@ def scan_main():
         dest="json_output",
         help="Output results as JSON",
     )
+    parser.add_argument(
+        "--semantic",
+        action="store_true",
+        default=False,
+        help="Enable LLM-based semantic analysis (requires ANTHROPIC_API_KEY)",
+    )
 
     args = parser.parse_args()
 
-    scanner = ToolScanner(block_threshold=args.block_threshold)
+    scanner = ToolScanner(
+        block_threshold=args.block_threshold,
+        enable_semantic=args.semantic,
+    )
     reporter = AuditReporter(log_dir="logs", verbose=not args.json_output)
 
     # --- Scan a single tool description ---
