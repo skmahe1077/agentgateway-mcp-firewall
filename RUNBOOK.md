@@ -1,10 +1,32 @@
 # Runbook — Demo Walkthrough
 
-This shows the before/after: what an agent sees when connecting to a malicious MCP server directly vs through agentgateway + firewall.
+## The Problem
+
+AI agents using MCP blindly trust tool descriptions from MCP servers. A malicious server can embed hidden instructions — prompt injections, data exfiltration commands, dangerous shell commands, invisible characters — directly in a tool's description field. The agent has no way to distinguish a safe tool from a weaponized one.
+
+**This demo proves it.** We deploy a malicious MCP server with 8 tools (7 poisoned) and show:
+
+1. **Without protection** (`/direct` route) — the agent receives all 8 tools, including 7 with hidden attacks
+2. **With protection** (`/mcp` route) — agentgateway + MCP Tool Firewall block all 7 poisoned tools, only the safe tool reaches the agent
+3. **Kill switch** — one API call blocks ALL tools from ALL servers instantly
+4. **AI-powered auditing** — kagent security auditor scans the server and explains every attack in natural language
+
+## Why Two Layers?
+
+| Layer | Component | What It Does |
+|-------|-----------|-------------|
+| **Governance** | [agentgateway](https://github.com/agentgateway/agentgateway) | Controls WHO can access WHICH tools, HOW OFTEN — auth, RBAC, rate limiting, routing, audit logging |
+| **Content Security** | MCP Tool Firewall | Controls WHAT's inside tool descriptions — 8 regex detectors + 1 LLM semantic detector, risk scoring, response scanning |
+| **Intelligence** | [kagent](https://kagent.dev) Security Auditor | AI agent that uses the firewall's tools to audit servers, generate reports, and respond to threats |
+
+Neither layer alone is sufficient. agentgateway can't inspect description content. The firewall can't enforce per-agent auth or rate limits. Together, they create defense-in-depth for MCP.
+
+---
 
 ## Prerequisites
 
 - Docker, kind, kubectl, curl
+- [kagent CLI](https://kagent.dev) (for the AI security auditor agent)
 - **`ANTHROPIC_API_KEY`** — required for the kagent security auditor agent (get one at https://console.anthropic.com/settings/keys). Also used for optional semantic analysis in the firewall.
 
 ## Setup
