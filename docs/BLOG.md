@@ -1,4 +1,4 @@
-# MCP Tool Poisoning: The Attack Your AI Agent Doesn't See Coming
+# agentgateway MCP Firewall with MCP Security Auditor Agent for Securing and Governing MCP Server Access
 
 ## The Problem
 
