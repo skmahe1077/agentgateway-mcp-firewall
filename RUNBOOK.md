@@ -1,4 +1,4 @@
-# Runbook  Demo Setup and Walkthrough
+# Runbook: Setting Up and Running agentgateway MCP Firewall with MCP Security Auditor Agent
 
 ## The Problem
 
@@ -15,7 +15,7 @@ AI agents using MCP blindly trust tool descriptions from MCP servers. A maliciou
 
 | Layer | Component | What It Does |
 |-------|-----------|-------------|
-| **Governance** | [agentgateway](https://github.com/agentgateway/agentgateway) | Controls WHO can access WHICH tools, HOW OFTEN — auth, RBAC, rate limiting, routing, audit logging |
+| **Governance** | [agentgateway](https://github.com/agentgateway/agentgateway) | Controls WHO can access WHICH tools, HOW OFTEN - auth, RBAC, rate limiting, routing, audit logging |
 | **Content Security** | MCP Tool Firewall | Controls WHAT's inside tool descriptions - 8 regex detectors + 1 LLM semantic detector, risk scoring, response scanning |
 | **Intelligence** | [kagent](https://kagent.dev) Security Auditor | AI agent that uses the firewall's tools to audit servers, generate reports, and respond to threats |
 
@@ -27,7 +27,7 @@ Neither layer alone is sufficient. agentgateway can't inspect description conten
 
 - Docker, kind, kubectl, curl
 - [kagent CLI](https://kagent.dev) (for the AI security auditor agent)
-- **`ANTHROPIC_API_KEY`** — required for the kagent security auditor agent (get one at https://console.anthropic.com/settings/keys). Also used for optional semantic analysis in the firewall.
+- **`ANTHROPIC_API_KEY`** - required for the kagent security auditor agent (get one at https://console.anthropic.com/settings/keys). Also used for optional semantic analysis in the firewall.
 
 ## Setup
 
@@ -77,7 +77,7 @@ kubectl get pods
 kubectl get pods -n kagent | grep -E "firewall|mcp-security"
 ```
 
-Default namespace — 5 pods:
+Default namespace - 5 pods:
 
 ```
 agentgateway-xxxxx              1/1     Running
@@ -87,7 +87,7 @@ mcp-tool-firewall-xxxxx         1/1     Running
 prometheus-xxxxx                1/1     Running
 ```
 
-kagent namespace — 2 pods (plus kagent infra):
+kagent namespace - 2 pods (plus kagent infra):
 
 ```
 firewall-tools-xxxxx            1/1     Running
