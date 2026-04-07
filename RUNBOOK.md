@@ -1,22 +1,22 @@
-# Runbook — Demo Walkthrough
+# Runbook  Demo Setup and Walkthrough
 
 ## The Problem
 
-AI agents using MCP blindly trust tool descriptions from MCP servers. A malicious server can embed hidden instructions — prompt injections, data exfiltration commands, dangerous shell commands, invisible characters — directly in a tool's description field. The agent has no way to distinguish a safe tool from a weaponized one.
+AI agents using MCP blindly trust tool descriptions from MCP servers. A malicious server can embed hidden instructions — prompt injections, data exfiltration commands, dangerous shell commands, invisible characters - directly in a tool's description field. The agent has no way to distinguish a safe tool from a weaponized one.
 
 **This demo proves it.** We deploy a malicious MCP server with 8 tools (7 poisoned) and show:
 
-1. **Without protection** (`/direct` route) — the agent receives all 8 tools, including 7 with hidden attacks
-2. **With protection** (`/mcp` route) — agentgateway + MCP Tool Firewall block all 7 poisoned tools, only the safe tool reaches the agent
-3. **Kill switch** — one API call blocks ALL tools from ALL servers instantly
-4. **AI-powered auditing** — kagent security auditor scans the server and explains every attack in natural language
+1. **Without protection** (`/direct` route) - the agent receives all 8 tools, including 7 with hidden attacks
+2. **With protection** (`/mcp` route) - agentgateway + MCP Tool Firewall block all 7 poisoned tools, only the safe tool reaches the agent
+3. **Kill switch** - one API call blocks ALL tools from ALL servers instantly
+4. **AI-powered auditing** - kagent security auditor scans the server and explains every attack in natural language
 
 ## Why Two Layers?
 
 | Layer | Component | What It Does |
 |-------|-----------|-------------|
 | **Governance** | [agentgateway](https://github.com/agentgateway/agentgateway) | Controls WHO can access WHICH tools, HOW OFTEN — auth, RBAC, rate limiting, routing, audit logging |
-| **Content Security** | MCP Tool Firewall | Controls WHAT's inside tool descriptions — 8 regex detectors + 1 LLM semantic detector, risk scoring, response scanning |
+| **Content Security** | MCP Tool Firewall | Controls WHAT's inside tool descriptions - 8 regex detectors + 1 LLM semantic detector, risk scoring, response scanning |
 | **Intelligence** | [kagent](https://kagent.dev) Security Auditor | AI agent that uses the firewall's tools to audit servers, generate reports, and respond to threats |
 
 Neither layer alone is sufficient. agentgateway can't inspect description content. The firewall can't enforce per-agent auth or rate limits. Together, they create defense-in-depth for MCP.
@@ -67,7 +67,7 @@ kubectl create secret generic kagent-anthropic \
 # Deploy the security auditor agent
 kubectl apply -f deploy/k8s/kagent-security-agent.yaml
 
-# (Recommended) Free resources on kind — remove unused default kagent agents
+# (Recommended) Free resources on kind - remove unused default kagent agents
 kubectl delete agent helm-agent istio-agent cilium-debug-agent cilium-manager-agent \
   cilium-policy-agent argo-rollouts-conversion-agent kgateway-agent \
   observability-agent promql-agent k8s-agent -n kagent
@@ -179,26 +179,26 @@ curl -s -X POST http://localhost:3100/mcp \
 
 Now the agent only sees safe tools:
 
-- `firewall-protected_format_text` — the one clean upstream tool
-- `firewall-scanner_scan_tool_description` — scan a description on demand
-- `firewall-scanner_scan_mcp_server` — scan a whole server
-- `firewall-scanner_get_firewall_stats` — check firewall stats
-- `firewall-scanner_generate_security_report` — markdown report
-- `firewall-scanner_check_tool_response` — scan responses for secrets
-- `firewall-scanner_toggle_kill_switch` — emergency kill switch
-- `firewall-scanner_semantic_analyze_description` — LLM-based analysis
+- `firewall-protected_format_text` - the one clean upstream tool
+- `firewall-scanner_scan_tool_description` - scan a description on demand
+- `firewall-scanner_scan_mcp_server` - scan a whole server
+- `firewall-scanner_get_firewall_stats` - check firewall stats
+- `firewall-scanner_generate_security_report` - markdown report
+- `firewall-scanner_check_tool_response` - scan responses for secrets
+- `firewall-scanner_toggle_kill_switch` - emergency kill switch
+- `firewall-scanner_semantic_analyze_description` - LLM-based analysis
 
-7 poisoned tools blocked. The `firewall-protected_` and `firewall-scanner_` prefixes come from agentgateway — they show which backend each tool came from.
+7 poisoned tools blocked. The `firewall-protected_` and `firewall-scanner_` prefixes come from agentgateway - they show which backend each tool came from.
 
 ---
 
 ## Part 3: Observability
 
-**agentgateway Admin UI** — http://localhost:15100/ui
+**agentgateway Admin UI** - http://localhost:15100/ui
 
 Shows live sessions, which backend handled each request, and request/response timing.
 
-**Grafana** — http://localhost:3200 (login: admin / firewall)
+**Grafana** - http://localhost:3200 (login: admin / firewall)
 
 Go to Dashboards → MCP Tool Firewall. Shows total scans, tools blocked, detections by attack type, risk scores, scan duration, and response findings.
 
@@ -275,14 +275,14 @@ Agent: [calls generate_security_report]
 You: Check this response for secrets: "aws_access_key_id = AKIAIOSFODNN7EXAMPLE"
 
 Agent: [calls check_tool_response]
-       Found AWS Access Key (severity: 95) — should be redacted
+       Found AWS Access Key (severity: 95) - should be redacted
 ```
 
 ```
 You: Activate the kill switch
 
 Agent: [calls toggle_kill_switch with enabled=true]
-       Kill switch active — all tools blocked across all servers
+       Kill switch active - all tools blocked across all servers
 ```
 
 ### Using the CLI
