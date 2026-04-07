@@ -1,4 +1,4 @@
-# agentgateway MCP Firewall for Securing and Governing MCP Server Access
+# agentgateway MCP Firewall with MCP Security Auditor Agent for Securing and Governing MCP Server Access
 
 [![MCP_HACK//26](https://img.shields.io/badge/MCP__HACK%2F%2F26-Secure%20%26%20Govern%20MCP-blue)](https://aihackathon.dev/)
 [![Category](https://img.shields.io/badge/Category-Secure%20%26%20Govern%20MCP-red)](https://aihackathon.dev/)
