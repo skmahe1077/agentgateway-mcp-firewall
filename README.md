@@ -9,7 +9,7 @@
 [![kagent](https://img.shields.io/badge/kagent-AI%20Agent-purple)](https://kagent.dev)
 [![kmcp](https://img.shields.io/badge/kmcp-K8s%20MCP-teal)](https://github.com/kagent-dev/kmcp)
 
-**A two-layer defense system that secures and governs AI agent access to MCP tools combining [agentgateway](https://github.com/agentgateway/agentgateway) for governance with MCP Tool Firewall for content security.**
+**A three-layer defense system that secures and governs AI agent access to MCP tools combining [agentgateway](https://github.com/agentgateway/agentgateway) for governance with MCP Tool Firewall for content security.**
 
 Built for [MCP_HACK//26](https://aihackathon.dev/)  **Secure & Govern MCP** category.
 
