@@ -188,7 +188,7 @@ kubectl apply -f deploy/k8s/prometheus.yaml
 kubectl apply -f deploy/k8s/grafana.yaml
 ```
 
-### kagent Security Auditor (Optional)
+### kagent Security Auditor
 
 The security auditor agent uses Claude (via Anthropic API) as its LLM. You **must** provide a valid `ANTHROPIC_API_KEY` without it, the agent will fail with `authentication_error`.
 
